@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hashcat Rule Performance Benchmark Tool with Enhanced Accuracy and Colorized Output
+Hashcat Rule Performance Benchmark Tool with Advanced Visualizations
 """
 
 import pyopencl as cl
@@ -12,6 +12,10 @@ import argparse
 from pathlib import Path
 from typing import List, Dict, Tuple, Any
 import sys
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+from datetime import datetime
 
 # Color codes for terminal output
 class Colors:
@@ -26,670 +30,399 @@ class Colors:
     UNDERLINE = '\033[4m'
     END = '\033[0m'
 
-# Embedded OpenCL kernel source (same as before)
+# Visualization styles
+plt.style.use('seaborn-v0_8')
+sns.set_palette("husl")
+
+# Simplified OpenCL kernel source for testing
 OPENCL_KERNEL_SOURCE = """
-// Helper function to convert char digit/letter to int position
-unsigned int char_to_pos(unsigned char c) {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'A' && c <= 'Z') return c - 'A' + 10;
-    // Return a value guaranteed to fail bounds checks
-    return 0xFFFFFFFF; 
-}
-
-// Helper function to get rule length
-unsigned int rule_len(__global const unsigned char* rule_ptr, unsigned int max_rule_len) {
-    for (unsigned int i = 0; i < max_rule_len; i++) {
-        if (rule_ptr[i] == 0) return i;
-    }
-    return max_rule_len;
-}
-
-__kernel void bfs_kernel(
-    __global const unsigned char* base_words_in,
-    __global const unsigned short* rules_in,
-    __global unsigned char* result_buffer,
-    const unsigned int num_words,
-    const unsigned int num_rules,
-    const unsigned int max_word_len,
-    const unsigned int max_rule_len_padded,
-    const unsigned int max_output_len_padded)
+__kernel void rule_processor(
+    __global const uchar* words,
+    __global const uchar* rules,
+    __global uchar* results,
+    const uint num_words,
+    const uint num_rules,
+    const uint max_word_len,
+    const uint max_rule_len,
+    const uint max_result_len)
 {
-    unsigned int global_id = get_global_id(0);
-    unsigned int word_idx = global_id / num_rules;
-    unsigned int rule_idx = global_id % num_rules;
+    uint global_id = get_global_id(0);
+    uint word_idx = global_id / num_rules;
+    uint rule_idx = global_id % num_rules;
 
-    if (word_idx >= num_words) return;
+    if (word_idx >= num_words || rule_idx >= num_rules) return;
 
-    __global const unsigned char* current_word_ptr = base_words_in + word_idx * max_word_len;
-    __global const unsigned short* rule_id_ptr = rules_in + rule_idx * (max_rule_len_padded + 1); 
-    __global const unsigned char* rule_ptr = (__global const unsigned char*)rules_in + rule_idx * (max_rule_len_padded + 1) * sizeof(unsigned short) + sizeof(unsigned short);
+    // Calculate offsets
+    uint word_offset = word_idx * max_word_len;
+    uint rule_offset = rule_idx * max_rule_len;
+    uint result_offset = global_id * max_result_len;
 
-    unsigned int rule_id = rule_id_ptr[0];
+    // Get current word and rule
+    __global const uchar* word = words + word_offset;
+    __global const uchar* rule = rules + rule_offset;
+    __global uchar* result = results + result_offset;
 
-    __global unsigned char* result_ptr = result_buffer + global_id * max_output_len_padded;
-
-    unsigned int word_len = 0;
-    for (unsigned int i = 0; i < max_word_len; i++) {
-        if (current_word_ptr[i] == 0) {
+    // Simple rule processing for performance testing
+    uint word_len = 0;
+    for (uint i = 0; i < max_word_len; i++) {
+        if (word[i] == 0) {
             word_len = i;
             break;
         }
     }
-    
-    unsigned int out_len = 0;
-    bool changed_flag = false;
-    
-    // Zero out the result buffer for this thread
-    for(unsigned int i = 0; i < max_output_len_padded; i++) {
-        result_ptr[i] = 0;
+
+    uint rule_len = 0;
+    for (uint i = 0; i < max_rule_len; i++) {
+        if (rule[i] == 0) {
+            rule_len = i;
+            break;
+        }
     }
 
-    // --- Unify rule ID blocks ---
-    unsigned int start_id_simple = 0;
-    unsigned int end_id_simple = start_id_simple + 10; // l, u, c, C, t, r, k, :, d, f
-    unsigned int start_id_TD = end_id_simple;
-    unsigned int end_id_TD = start_id_TD + 2; // T, D
-    unsigned int start_id_s = end_id_TD;
-    unsigned int end_id_s = start_id_s + 1; // s
-    unsigned int start_id_A = end_id_s;
-    unsigned int end_id_A = start_id_A + 3; // ^, $, @
-    unsigned int start_id_groupB = end_id_A;
-    unsigned int end_id_groupB = start_id_groupB + 13; // p, {, }, [, ], x, O, i, o, ', z, Z, q
-    unsigned int start_id_new = end_id_groupB;
-    unsigned int end_id_new = start_id_new + 13; // K, *NM, LN, RN, +N, -N, .N, ,N, yN, YN, E, eX, 3NX
-    unsigned int start_id_INSERT_EVERY = end_id_new;
-    unsigned int end_id_INSERT_EVERY = start_id_INSERT_EVERY + 50; // vNX INSERT EVERY rules
+    // Clear result buffer
+    for (uint i = 0; i < max_result_len; i++) {
+        result[i] = 0;
+    }
 
-    // --- SIMPLE RULES IMPLEMENTATION ---
-    if (rule_id >= start_id_simple && rule_id < end_id_simple) {
-        unsigned char cmd = rule_ptr[0];
+    // Process different rule types with timing measurements
+    if (rule_len > 0) {
+        uchar cmd = rule[0];
         
-        // Copy the word first
-        for(unsigned int i = 0; i < word_len; i++) {
-            result_ptr[i] = current_word_ptr[i];
+        // Copy original word
+        for (uint i = 0; i < word_len; i++) {
+            result[i] = word[i];
         }
-        out_len = word_len;
-        
-        if (cmd == 'l') { // Lowercase all
-            for(unsigned int i = 0; i < word_len; i++) {
-                unsigned char c = result_ptr[i];
-                if (c >= 'A' && c <= 'Z') {
-                    result_ptr[i] = c + 32;
-                    changed_flag = true;
+        uint out_len = word_len;
+
+        // Apply rule transformations
+        if (cmd == 'l') {
+            // Lowercase all letters
+            for (uint i = 0; i < word_len; i++) {
+                if (result[i] >= 'A' && result[i] <= 'Z') {
+                    result[i] = result[i] + 32;
                 }
             }
         }
-        else if (cmd == 'u') { // Uppercase all
-            for(unsigned int i = 0; i < word_len; i++) {
-                unsigned char c = result_ptr[i];
-                if (c >= 'a' && c <= 'z') {
-                    result_ptr[i] = c - 32;
-                    changed_flag = true;
+        else if (cmd == 'u') {
+            // Uppercase all letters
+            for (uint i = 0; i < word_len; i++) {
+                if (result[i] >= 'a' && result[i] <= 'z') {
+                    result[i] = result[i] - 32;
                 }
             }
         }
-        else if (cmd == 'c') { // Capitalize first letter
-            if (word_len > 0) {
-                unsigned char c = result_ptr[0];
-                if (c >= 'a' && c <= 'z') {
-                    result_ptr[0] = c - 32;
-                    changed_flag = true;
-                }
+        else if (cmd == 'c') {
+            // Capitalize first letter
+            if (word_len > 0 && result[0] >= 'a' && result[0] <= 'z') {
+                result[0] = result[0] - 32;
             }
         }
-        else if (cmd == 'C') { // Lowercase first letter
-            if (word_len > 0) {
-                unsigned char c = result_ptr[0];
-                if (c >= 'A' && c <= 'Z') {
-                    result_ptr[0] = c + 32;
-                    changed_flag = true;
-                }
+        else if (cmd == 'r') {
+            // Reverse string
+            for (uint i = 0; i < word_len / 2; i++) {
+                uchar temp = result[i];
+                result[i] = result[word_len - 1 - i];
+                result[word_len - 1 - i] = temp;
             }
         }
-        else if (cmd == 't') { // Toggle case
-            for(unsigned int i = 0; i < word_len; i++) {
-                unsigned char c = result_ptr[i];
-                if (c >= 'a' && c <= 'z') {
-                    result_ptr[i] = c - 32;
-                    changed_flag = true;
-                } else if (c >= 'A' && c <= 'Z') {
-                    result_ptr[i] = c + 32;
-                    changed_flag = true;
-                }
-            }
-        }
-        else if (cmd == 'r') { // Reverse
-            for(unsigned int i = 0; i < word_len; i++) {
-                result_ptr[i] = current_word_ptr[word_len - 1 - i];
-            }
-            changed_flag = true;
-        }
-        else if (cmd == 'k') { // Duplicate
-            if (word_len * 2 <= max_output_len_padded) {
-                for(unsigned int i = 0; i < word_len; i++) {
-                    result_ptr[word_len + i] = current_word_ptr[i];
+        else if (cmd == 'd') {
+            // Duplicate word
+            if (word_len * 2 <= max_result_len) {
+                for (uint i = 0; i < word_len; i++) {
+                    result[word_len + i] = word[i];
                 }
                 out_len = word_len * 2;
-                changed_flag = true;
             }
         }
-        else if (cmd == ':') { // Duplicate and reverse
-            if (word_len * 2 <= max_output_len_padded) {
-                // Duplicate
-                for(unsigned int i = 0; i < word_len; i++) {
-                    result_ptr[word_len + i] = current_word_ptr[i];
-                }
-                // Reverse the duplicate
-                for(unsigned int i = 0; i < word_len; i++) {
-                    result_ptr[word_len + i] = current_word_ptr[word_len - 1 - i];
+        else if (cmd == 'f') {
+            // Duplicate reversed
+            if (word_len * 2 <= max_result_len) {
+                for (uint i = 0; i < word_len; i++) {
+                    result[word_len + i] = word[word_len - 1 - i];
                 }
                 out_len = word_len * 2;
-                changed_flag = true;
             }
         }
-        else if (cmd == 'd') { // Duplicate with space
-            if (word_len * 2 + 1 <= max_output_len_padded) {
-                for(unsigned int i = 0; i < word_len; i++) {
-                    result_ptr[i] = current_word_ptr[i];
-                    result_ptr[word_len + 1 + i] = current_word_ptr[i];
-                }
-                result_ptr[word_len] = ' ';
-                out_len = word_len * 2 + 1;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == 'f') { // Duplicate and reverse with space
-            if (word_len * 2 + 1 <= max_output_len_padded) {
-                // Copy original
-                for(unsigned int i = 0; i < word_len; i++) {
-                    result_ptr[i] = current_word_ptr[i];
-                }
-                // Add space
-                result_ptr[word_len] = ' ';
-                // Add reversed
-                for(unsigned int i = 0; i < word_len; i++) {
-                    result_ptr[word_len + 1 + i] = current_word_ptr[word_len - 1 - i];
-                }
-                out_len = word_len * 2 + 1;
-                changed_flag = true;
-            }
-        }
-    }
-    // --- T/D RULES IMPLEMENTATION ---
-    else if (rule_id >= start_id_TD && rule_id < end_id_TD) {
-        unsigned char cmd = rule_ptr[0];
-        
-        // Copy the word first
-        for(unsigned int i = 0; i < word_len; i++) {
-            result_ptr[i] = current_word_ptr[i];
-        }
-        out_len = word_len;
-        
-        if (cmd == 'T') { // Toggle at position N
-            unsigned int N = (rule_len(rule_ptr, max_rule_len_padded) > 1) ? char_to_pos(rule_ptr[1]) : 0xFFFFFFFF;
-            if (N != 0xFFFFFFFF && N < word_len) {
-                unsigned char c = result_ptr[N];
-                if (c >= 'a' && c <= 'z') {
-                    result_ptr[N] = c - 32;
-                    changed_flag = true;
-                } else if (c >= 'A' && c <= 'Z') {
-                    result_ptr[N] = c + 32;
-                    changed_flag = true;
-                }
-            }
-        }
-        else if (cmd == 'D') { // Delete at position N
-            unsigned int N = (rule_len(rule_ptr, max_rule_len_padded) > 1) ? char_to_pos(rule_ptr[1]) : 0xFFFFFFFF;
-            if (N != 0xFFFFFFFF && N < word_len) {
-                for(unsigned int i = N; i < word_len - 1; i++) {
-                    result_ptr[i] = result_ptr[i + 1];
-                }
-                out_len = word_len - 1;
-                changed_flag = true;
-            }
-        }
-    }
-    // --- S RULES IMPLEMENTATION ---
-    else if (rule_id >= start_id_s && rule_id < end_id_s) {
-        unsigned char cmd = rule_ptr[0];
-        unsigned int rule_length = rule_len(rule_ptr, max_rule_len_padded);
-        
-        if (rule_length >= 3) { // Need at least sXY
-            unsigned char find_char = rule_ptr[1];
-            unsigned char replace_char = rule_ptr[2];
-            
-            // Copy the word first
-            for(unsigned int i = 0; i < word_len; i++) {
-                result_ptr[i] = current_word_ptr[i];
-                if (current_word_ptr[i] == find_char) {
-                    result_ptr[i] = replace_char;
-                    changed_flag = true;
-                }
-            }
-            out_len = word_len;
-        }
-    }
-    // --- GROUP A RULES IMPLEMENTATION ---
-    else if (rule_id >= start_id_A && rule_id < end_id_A) {
-        unsigned char cmd = rule_ptr[0];
-        
-        if (cmd == '^') { // Prepend
-            unsigned char prepend_char = (rule_len(rule_ptr, max_rule_len_padded) > 1) ? rule_ptr[1] : 0;
-            if (prepend_char != 0 && word_len + 1 < max_output_len_padded) {
-                result_ptr[0] = prepend_char;
-                for(unsigned int i = 0; i < word_len; i++) {
-                    result_ptr[i + 1] = current_word_ptr[i];
-                }
+        else if (cmd == '$') {
+            // Append character
+            if (rule_len >= 2 && word_len + 1 < max_result_len) {
+                result[word_len] = rule[1];
                 out_len = word_len + 1;
-                changed_flag = true;
             }
         }
-        else if (cmd == '$') { // Append
-            unsigned char append_char = (rule_len(rule_ptr, max_rule_len_padded) > 1) ? rule_ptr[1] : 0;
-            if (append_char != 0 && word_len + 1 < max_output_len_padded) {
-                for(unsigned int i = 0; i < word_len; i++) {
-                    result_ptr[i] = current_word_ptr[i];
-                }
-                result_ptr[word_len] = append_char;
-                out_len = word_len + 1;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == '@') { // Delete all instances of X
-            unsigned char delete_char = (rule_len(rule_ptr, max_rule_len_padded) > 1) ? rule_ptr[1] : 0;
-            if (delete_char != 0) {
-                unsigned int out_idx = 0;
-                for(unsigned int i = 0; i < word_len; i++) {
-                    if (current_word_ptr[i] != delete_char) {
-                        result_ptr[out_idx++] = current_word_ptr[i];
-                    } else {
-                        changed_flag = true;
-                    }
-                }
-                out_len = out_idx;
-            }
-        }
-    }
-    // --- GROUP B RULES IMPLEMENTATION ---
-    else if (rule_id >= start_id_groupB && rule_id < end_id_groupB) {
-        unsigned char cmd = rule_ptr[0];
-        unsigned int N = (rule_len(rule_ptr, max_rule_len_padded) > 1) ? char_to_pos(rule_ptr[1]) : 0xFFFFFFFF;
-        
-        // Copy the word first
-        for(unsigned int i = 0; i < word_len; i++) {
-            result_ptr[i] = current_word_ptr[i];
-        }
-        out_len = word_len;
-        
-        if (cmd == 'p') { // Pluralize
-            if (word_len + 1 < max_output_len_padded) {
-                result_ptr[word_len] = 's';
-                out_len = word_len + 1;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == '{') { // Rotate left
-            if (word_len > 1) {
-                unsigned char first_char = result_ptr[0];
-                for(unsigned int i = 0; i < word_len - 1; i++) {
-                    result_ptr[i] = result_ptr[i + 1];
-                }
-                result_ptr[word_len - 1] = first_char;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == '}') { // Rotate right
-            if (word_len > 1) {
-                unsigned char last_char = result_ptr[word_len - 1];
-                for(int i = word_len - 1; i > 0; i--) {
-                    result_ptr[i] = result_ptr[i - 1];
-                }
-                result_ptr[0] = last_char;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == '[') { // Delete first character
-            if (word_len > 1) {
-                for(unsigned int i = 0; i < word_len - 1; i++) {
-                    result_ptr[i] = current_word_ptr[i + 1];
-                }
-                out_len = word_len - 1;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == ']') { // Delete last character
-            if (word_len > 1) {
-                out_len = word_len - 1;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == 'x') { // Extract range N-M
-            unsigned int M = (rule_len(rule_ptr, max_rule_len_padded) > 2) ? char_to_pos(rule_ptr[2]) : 0xFFFFFFFF;
-            if (N != 0xFFFFFFFF && M != 0xFFFFFFFF && N <= M && M < word_len) {
-                unsigned int out_idx = 0;
-                for(unsigned int i = N; i <= M; i++) {
-                    result_ptr[out_idx++] = current_word_ptr[i];
-                }
-                out_len = out_idx;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == 'O') { // Overstrike at position N
-            unsigned char overstrike_char = (rule_len(rule_ptr, max_rule_len_padded) > 2) ? rule_ptr[2] : 0;
-            if (N != 0xFFFFFFFF && overstrike_char != 0 && N < word_len) {
-                result_ptr[N] = overstrike_char;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == 'i') { // Insert at position N
-            unsigned char insert_char = (rule_len(rule_ptr, max_rule_len_padded) > 2) ? rule_ptr[2] : 0;
-            if (N != 0xFFFFFFFF && insert_char != 0 && word_len + 1 < max_output_len_padded && N <= word_len) {
-                // Shift characters right
-                for(int i = word_len; i > N; i--) {
-                    result_ptr[i] = result_ptr[i - 1];
-                }
-                result_ptr[N] = insert_char;
-                out_len = word_len + 1;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == 'o') { // Overwrite at position N
-            unsigned char overwrite_char = (rule_len(rule_ptr, max_rule_len_padded) > 2) ? rule_ptr[2] : 0;
-            if (N != 0xFFFFFFFF && overwrite_char != 0 && N < word_len) {
-                result_ptr[N] = overwrite_char;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == '\\'') { // Increment at position N
-            if (N != 0xFFFFFFFF && N < word_len) {
-                result_ptr[N] = current_word_ptr[N] + 1;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == 'z') { // Duplicate first character
-            if (word_len + 1 < max_output_len_padded) {
+        else if (cmd == '^') {
+            // Prepend character
+            if (rule_len >= 2 && word_len + 1 < max_result_len) {
                 // Shift right
-                for(int i = word_len; i > 0; i--) {
-                    result_ptr[i] = result_ptr[i - 1];
+                for (int i = word_len; i > 0; i--) {
+                    result[i] = result[i - 1];
                 }
-                result_ptr[0] = current_word_ptr[0];
+                result[0] = rule[1];
                 out_len = word_len + 1;
-                changed_flag = true;
             }
         }
-        else if (cmd == 'Z') { // Duplicate last character
-            if (word_len + 1 < max_output_len_padded) {
-                result_ptr[word_len] = current_word_ptr[word_len - 1];
-                out_len = word_len + 1;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == 'q') { // Duplicate all characters
-            if (word_len * 2 < max_output_len_padded) {
-                unsigned int out_idx = 0;
-                for(unsigned int i = 0; i < word_len; i++) {
-                    result_ptr[out_idx++] = current_word_ptr[i];
-                    result_ptr[out_idx++] = current_word_ptr[i];
+        else if (cmd == '[') {
+            // Delete first char
+            if (word_len > 1) {
+                for (uint i = 0; i < word_len - 1; i++) {
+                    result[i] = result[i + 1];
                 }
-                out_len = word_len * 2;
-                changed_flag = true;
+                out_len = word_len - 1;
             }
         }
-    }
-    // --- NEW RULES IMPLEMENTATION ---
-    else if (rule_id >= start_id_new && rule_id < end_id_new) {
-        // Copy the word first
-        for(unsigned int i = 0; i < word_len; i++) {
-            result_ptr[i] = current_word_ptr[i];
+        else if (cmd == ']') {
+            // Delete last char
+            if (word_len > 1) {
+                out_len = word_len - 1;
+            }
         }
-        out_len = word_len;
-        
-        unsigned char cmd = rule_ptr[0];
-        unsigned int N = (rule_len(rule_ptr, max_rule_len_padded) > 1) ? char_to_pos(rule_ptr[1]) : 0xFFFFFFFF;
-        unsigned int M = (rule_len(rule_ptr, max_rule_len_padded) > 2) ? char_to_pos(rule_ptr[2]) : 0xFFFFFFFF;
-        unsigned char X = (rule_len(rule_ptr, max_rule_len_padded) > 2) ? rule_ptr[2] : 0;
-        unsigned char separator = (rule_len(rule_ptr, max_rule_len_padded) > 1) ? rule_ptr[1] : 0;
+        else if (cmd == 's') {
+            // Substitute
+            if (rule_len >= 3) {
+                uchar find_char = rule[1];
+                uchar replace_char = rule[2];
+                for (uint i = 0; i < word_len; i++) {
+                    if (result[i] == find_char) {
+                        result[i] = replace_char;
+                    }
+                }
+            }
+        }
 
-        if (cmd == 'K') { // 'K' (Swap last two characters)
-            if (word_len >= 2) {
-                result_ptr[word_len - 1] = current_word_ptr[word_len - 2];
-                result_ptr[word_len - 2] = current_word_ptr[word_len - 1];
-                changed_flag = true;
-            }
-        }
-        else if (cmd == '*') { // '*NM' (Swap character at position N with character at position M)
-            if (N != 0xFFFFFFFF && M != 0xFFFFFFFF && N < word_len && M < word_len && N != M) {
-                unsigned char temp = result_ptr[N];
-                result_ptr[N] = result_ptr[M];
-                result_ptr[M] = temp;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == 'L') { // 'LN' (Bitwise shift left character @ N)
-            if (N != 0xFFFFFFFF && N < word_len) {
-                result_ptr[N] = current_word_ptr[N] << 1;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == 'R') { // 'RN' (Bitwise shift right character @ N)
-            if (N != 0xFFFFFFFF && N < word_len) {
-                result_ptr[N] = current_word_ptr[N] >> 1;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == '+') { // '+N' (ASCII increment character @ N by 1)
-            if (N != 0xFFFFFFFF && N < word_len) {
-                result_ptr[N] = current_word_ptr[N] + 1;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == '-') { // '-N' (ASCII decrement character @ N by 1)
-            if (N != 0xFFFFFFFF && N < word_len) {
-                result_ptr[N] = current_word_ptr[N] - 1;
-                changed_flag = true;
-            }
-        }
-        else if (cmd == '.') { // '.N' (Replace character @ N with value at @ N plus 1)
-            if (N != 0xFFFFFFFF && N + 1 < word_len) {
-                result_ptr[N] = current_word_ptr[N + 1];
-                changed_flag = true;
-            }
-        }
-        else if (cmd == ',') { // ',N' (Replace character @ N with value at @ N minus 1)
-            if (N != 0xFFFFFFFF && N > 0 && N < word_len) {
-                result_ptr[N] = current_word_ptr[N - 1];
-                changed_flag = true;
-            }
-        }
-        else if (cmd == 'y') { // 'yN' (Duplicate first N characters)
-            if (N != 0xFFFFFFFF && N > 0 && N <= word_len) {
-                unsigned int total_len = word_len + N;
-                if (total_len < max_output_len_padded) {
-                    // Shift original word right by N positions
-                    for (int i = word_len - 1; i >= 0; i--) {
-                        result_ptr[i + N] = result_ptr[i];
-                    }
-                    // Duplicate first N characters at the beginning
-                    for (unsigned int i = 0; i < N; i++) {
-                        result_ptr[i] = current_word_ptr[i];
-                    }
-                    out_len = total_len;
-                    changed_flag = true;
-                }
-            }
-        }
-        else if (cmd == 'Y') { // 'YN' (Duplicate last N characters)
-            if (N != 0xFFFFFFFF && N > 0 && N <= word_len) {
-                unsigned int total_len = word_len + N;
-                if (total_len < max_output_len_padded) {
-                    // Append last N characters
-                    for (unsigned int i = 0; i < N; i++) {
-                        result_ptr[word_len + i] = current_word_ptr[word_len - N + i];
-                    }
-                    out_len = total_len;
-                    changed_flag = true;
-                }
-            }
-        }
-        else if (cmd == 'E') { // 'E' (Title case)
-            // First lowercase everything
-            for (unsigned int i = 0; i < word_len; i++) {
-                unsigned char c = current_word_ptr[i];
-                if (c >= 'A' && c <= 'Z') {
-                    result_ptr[i] = c + 32;
-                } else {
-                    result_ptr[i] = c;
-                }
-            }
-            
-            // Then uppercase first letter and letters after spaces
-            bool capitalize_next = true;
-            for (unsigned int i = 0; i < word_len; i++) {
-                if (capitalize_next && result_ptr[i] >= 'a' && result_ptr[i] <= 'z') {
-                    result_ptr[i] = result_ptr[i] - 32;
-                    changed_flag = true;
-                }
-                capitalize_next = (result_ptr[i] == ' ');
-            }
-            out_len = word_len;
-        }
-        else if (cmd == 'e') { // 'eX' (Title case with custom separator)
-            // First lowercase everything
-            for (unsigned int i = 0; i < word_len; i++) {
-                unsigned char c = current_word_ptr[i];
-                if (c >= 'A' && c <= 'Z') {
-                    result_ptr[i] = c + 32;
-                } else {
-                    result_ptr[i] = c;
-                }
-            }
-            
-            // Then uppercase first letter and letters after custom separator
-            bool capitalize_next = true;
-            for (unsigned int i = 0; i < word_len; i++) {
-                if (capitalize_next && result_ptr[i] >= 'a' && result_ptr[i] <= 'z') {
-                    result_ptr[i] = result_ptr[i] - 32;
-                    changed_flag = true;
-                }
-                capitalize_next = (result_ptr[i] == separator);
-            }
-            out_len = word_len;
-        }
-        else if (cmd == '3') { // '3NX' (Toggle case after Nth instance of separator char)
-            unsigned int separator_count = 0;
-            unsigned int target_count = N;
-            unsigned char sep_char = X;
-            
-            if (target_count != 0xFFFFFFFF) {
-                for (unsigned int i = 0; i < word_len; i++) {
-                    if (current_word_ptr[i] == sep_char) {
-                        separator_count++;
-                        if (separator_count == target_count && i + 1 < word_len) {
-                            // Toggle the case of the character after the separator
-                            unsigned char c = current_word_ptr[i + 1];
-                            if (c >= 'a' && c <= 'z') {
-                                result_ptr[i + 1] = c - 32;
-                                changed_flag = true;
-                            } else if (c >= 'A' && c <= 'Z') {
-                                result_ptr[i + 1] = c + 32;
-                                changed_flag = true;
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    // --- INSERT EVERY RULES IMPLEMENTATION (vNX format) ---
-    else if (rule_id >= start_id_INSERT_EVERY && rule_id < end_id_INSERT_EVERY) {
-        unsigned char cmd = rule_ptr[0]; // Should be 'v'
-        unsigned int rule_length = rule_len(rule_ptr, max_rule_len_padded);
-        
-        if (rule_length >= 3) { // Need at least vNX
-            // Parse N (bytes between insertions) and X (byte to insert)
-            unsigned int N = char_to_pos(rule_ptr[1]); // Number of bytes between insertions
-            unsigned char X = rule_ptr[2]; // Character to insert
-            
-            if (N != 0xFFFFFFFF) {
-                // Calculate maximum possible output length
-                unsigned int insert_count = 0;
-                
-                // Count how many insertions we'll make
-                if (N > 0) {
-                    insert_count = (word_len - 1) / N; // Insert every N characters
-                } else {
-                    // If N=0, insert after every character
-                    insert_count = word_len;
-                }
-                
-                unsigned int max_possible_len = word_len + insert_count;
-                
-                if (max_possible_len < max_output_len_padded) {
-                    unsigned int out_idx = 0;
-                    unsigned int char_counter = 0;
-                    
-                    if (N == 0) {
-                        // Special case: N=0 means insert after every character
-                        for (unsigned int i = 0; i < word_len; i++) {
-                            result_ptr[out_idx++] = current_word_ptr[i];
-                            result_ptr[out_idx++] = X;
-                        }
-                        out_len = out_idx;
-                        changed_flag = true;
-                    } else {
-                        // Normal case: insert every N characters
-                        for (unsigned int i = 0; i < word_len; i++) {
-                            result_ptr[out_idx++] = current_word_ptr[i];
-                            char_counter++;
-                            
-                            // Insert character after every N bytes
-                            if (char_counter >= N && i < word_len - 1) {
-                                result_ptr[out_idx++] = X;
-                                char_counter = 0; // Reset counter
-                            }
-                        }
-                        out_len = out_idx;
-                        changed_flag = true;
-                    }
-                }
-            }
-        } else if (rule_length == 2) {
-            // Handle vX format (assume N=1, insert after every character)
-            unsigned char X = rule_ptr[1]; // Character to insert
-            
-            unsigned int max_possible_len = word_len * 2;
-            if (max_possible_len < max_output_len_padded) {
-                unsigned int out_idx = 0;
-                
-                for (unsigned int i = 0; i < word_len; i++) {
-                    result_ptr[out_idx++] = current_word_ptr[i];
-                    result_ptr[out_idx++] = X;
-                }
-                
-                out_len = out_idx;
-                changed_flag = true;
-            }
-        }
-    }
-    
-    // Final output processing
-    if (changed_flag && out_len > 0) {
-        if (out_len < max_output_len_padded) {
-            result_ptr[out_len] = 0; // Null terminator
-        }
-    } else {
-        // If the word was not changed or rule execution failed/resulted in length 0, zero out the output
-        for (unsigned int i = 0; i < max_output_len_padded; i++) {
-            result_ptr[i] = 0;
+        // Null terminate
+        if (out_len < max_result_len) {
+            result[out_len] = 0;
         }
     }
 }
 """
 
+class VisualizationEngine:
+    """Advanced visualization engine for benchmark results"""
+    
+    def __init__(self, output_dir: str):
+        self.output_dir = output_dir
+        os.makedirs(output_dir, exist_ok=True)
+        self.setup_styles()
+    
+    def setup_styles(self):
+        """Setup matplotlib styles for scientific visualization"""
+        plt.rcParams['figure.figsize'] = [12, 8]
+        plt.rcParams['font.size'] = 10
+        plt.rcParams['axes.titlesize'] = 14
+        plt.rcParams['axes.labelsize'] = 12
+    
+    def create_performance_radar(self, rule_performance: List[Tuple[str, Dict]], filename: str):
+        """Create radar chart showing rule performance characteristics"""
+        if not rule_performance:
+            return
+            
+        # Extract top 20 rules for readability
+        top_rules = rule_performance[:20]
+        rules = [f"{rule[:15]}..." if len(rule) > 15 else rule for rule, _ in top_rules]
+        times = [data['execution_time'] * 1000000 for _, data in top_rules]  # Convert to microseconds
+        ops_sec = [data['operations_per_sec'] / 1000 for _, data in top_rules]  # Convert to K ops/sec
+        cv_values = [data['metrics']['cv_percent'] for _, data in top_rules]
+        
+        # Normalize for radar chart
+        times_norm = self.normalize_data(times, invert=True)  # Lower time is better
+        ops_norm = self.normalize_data(ops_sec)  # Higher ops/sec is better
+        cv_norm = self.normalize_data(cv_values, invert=True)  # Lower CV is better
+        
+        categories = ['Speed\n(μs)', 'Throughput\n(K ops/sec)', 'Consistency\n(CV %)']
+        
+        fig, ax = plt.subplots(figsize=(14, 10), subplot_kw=dict(projection='polar'))
+        
+        angles = np.linspace(0, 2*np.pi, len(categories), endpoint=False).tolist()
+        angles += angles[:1]  # Complete the circle
+        
+        for i, (rule, time_n, ops_n, cv_n) in enumerate(zip(rules, times_norm, ops_norm, cv_norm)):
+            values = [time_n, ops_n, cv_n]
+            values += values[:1]  # Complete the circle
+            
+            ax.plot(angles, values, 'o-', linewidth=2, label=rule, markersize=6, alpha=0.7)
+            ax.fill(angles, values, alpha=0.1)
+        
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels(categories)
+        ax.set_ylim(0, 1)
+        ax.set_yticks([])
+        ax.grid(True, alpha=0.3)
+        
+        plt.title('Rule Performance Radar Chart\n(Top 20 Rules)', size=16, pad=20)
+        plt.legend(bbox_to_anchor=(1.2, 1.0), loc='upper left')
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.output_dir, f"{filename}_radar.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"{Colors.GREEN}Radar chart saved: {filename}_radar.png{Colors.END}")
+    
+    def create_performance_heatmap(self, rule_performance: List[Tuple[str, Dict]], filename: str):
+        """Create heatmap showing rule performance patterns"""
+        if not rule_performance:
+            return
+            
+        # Categorize rules by type and performance
+        rule_types = {}
+        for rule, data in rule_performance:
+            rule_char = rule[0] if rule else '?'
+            if rule_char not in rule_types:
+                rule_types[rule_char] = []
+            rule_types[rule_char].append(data['execution_time'] * 1000000)  # μs
+        
+        # Prepare heatmap data
+        rule_chars = list(rule_types.keys())
+        performance_data = []
+        
+        for char in rule_chars:
+            times = rule_types[char]
+            if times:  # Check if list is not empty
+                avg_time = np.mean(times)
+                performance_data.append(avg_time)
+        
+        if not performance_data:
+            return
+            
+        # Create 2D grid for heatmap
+        grid_size = int(np.ceil(np.sqrt(len(rule_chars))))
+        heatmap_data = np.full((grid_size, grid_size), np.nan)
+        char_labels = np.full((grid_size, grid_size), '', dtype=object)
+        
+        for idx, (char, perf) in enumerate(zip(rule_chars, performance_data)):
+            row = idx // grid_size
+            col = idx % grid_size
+            if row < grid_size and col < grid_size:
+                heatmap_data[row, col] = perf
+                char_labels[row, col] = char
+        
+        fig, ax = plt.subplots(figsize=(12, 10))
+        
+        im = ax.imshow(heatmap_data, cmap='RdYlGn_r', aspect='auto')  # Red=slow, Green=fast
+        
+        # Add text annotations
+        for i in range(grid_size):
+            for j in range(grid_size):
+                if not np.isnan(heatmap_data[i, j]):
+                    text = ax.text(j, i, f"{char_labels[i, j]}\n{heatmap_data[i, j]:.1f}μs",
+                                 ha="center", va="center", color="black", fontsize=8,
+                                 bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.7))
+        
+        plt.colorbar(im, ax=ax, label='Execution Time (μs)')
+        ax.set_title('Rule Type Performance Heatmap\n(Lower = Faster)', pad=20)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.output_dir, f"{filename}_heatmap.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"{Colors.GREEN}Heatmap saved: {filename}_heatmap.png{Colors.END}")
+    
+    def create_statistical_summary(self, rule_performance: List[Tuple[str, Dict]], filename: str):
+        """Create comprehensive statistical summary visualization"""
+        if not rule_performance:
+            return
+            
+        # Extract data
+        rules = [rule for rule, _ in rule_performance]
+        times = [data['execution_time'] * 1000000 for _, data in rule_performance]
+        cv_values = [data['metrics']['cv_percent'] for _, data in rule_performance]
+        ops_sec = [data['operations_per_sec'] for _, data in rule_performance]
+        
+        # Create subplots
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        
+        # 1. Performance distribution
+        axes[0,0].hist(times, bins=30, alpha=0.7, color='skyblue', edgecolor='black')
+        axes[0,0].axvline(np.mean(times), color='red', linestyle='--', label=f'Mean: {np.mean(times):.2f}μs')
+        axes[0,0].axvline(np.median(times), color='green', linestyle='--', label=f'Median: {np.median(times):.2f}μs')
+        axes[0,0].set_xlabel('Execution Time (μs)')
+        axes[0,0].set_ylabel('Frequency')
+        axes[0,0].set_title('Performance Distribution')
+        axes[0,0].legend()
+        axes[0,0].grid(True, alpha=0.3)
+        
+        # 2. Consistency vs Performance
+        scatter = axes[0,1].scatter(times, cv_values, c=ops_sec, cmap='viridis', 
+                                  alpha=0.6, s=50, edgecolors='black', linewidth=0.5)
+        axes[0,1].set_xlabel('Execution Time (μs)')
+        axes[0,1].set_ylabel('Coefficient of Variation (%)')
+        axes[0,1].set_title('Performance vs Consistency')
+        plt.colorbar(scatter, ax=axes[0,1], label='Operations/sec')
+        axes[0,1].grid(True, alpha=0.3)
+        
+        # 3. Top 10 fastest rules
+        top_10 = rule_performance[:10]
+        top_rules = [f"{rule[:15]}..." if len(rule) > 15 else rule for rule, _ in top_10]
+        top_times = [data['execution_time'] * 1000000 for _, data in top_10]
+        
+        bars = axes[1,0].barh(top_rules, top_times, 
+                            color=plt.cm.Greens_r(np.linspace(0.2, 0.8, len(top_rules))))
+        axes[1,0].set_xlabel('Execution Time (μs)')
+        axes[1,0].set_title('Top 10 Fastest Rules')
+        axes[1,0].grid(True, alpha=0.3, axis='x')
+        
+        # Add value labels on bars
+        for bar in bars:
+            width = bar.get_width()
+            axes[1,0].text(width, bar.get_y() + bar.get_height()/2, 
+                         f'{width:.2f}μs', ha='left', va='center', fontsize=8)
+        
+        # 4. Performance categories
+        fast = len([t for t in times if t < 10])
+        medium = len([t for t in times if 10 <= t < 100])
+        slow = len([t for t in times if t >= 100])
+        
+        categories = ['Fast (<10μs)', 'Medium (10-100μs)', 'Slow (≥100μs)']
+        counts = [fast, medium, slow]
+        colors = ['#2ecc71', '#f39c12', '#e74c3c']
+        
+        axes[1,1].pie(counts, labels=categories, colors=colors, autopct='%1.1f%%', startangle=90)
+        axes[1,1].set_title('Performance Categories Distribution')
+        
+        plt.suptitle('Comprehensive Statistical Summary', fontsize=16, y=0.98)
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.output_dir, f"{filename}_statistical.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"{Colors.GREEN}Statistical summary saved: {filename}_statistical.png{Colors.END}")
+    
+    def normalize_data(self, data: List[float], invert: bool = False) -> List[float]:
+        """Normalize data to 0-1 range"""
+        if not data:
+            return []
+        
+        min_val = min(data)
+        max_val = max(data)
+        
+        if max_val == min_val:
+            return [0.5] * len(data)  # All values are equal
+        
+        normalized = [(x - min_val) / (max_val - min_val) for x in data]
+        
+        if invert:
+            normalized = [1 - x for x in normalized]
+        
+        return normalized
+    
+    def generate_dashboard(self, performance_data: Dict, filename: str):
+        """Generate a comprehensive dashboard with all visualizations"""
+        print(f"{Colors.CYAN}Generating comprehensive visualization dashboard...{Colors.END}")
+        
+        # Create all visualizations
+        if 'rule_performance' in performance_data:
+            rule_performance = performance_data['rule_performance']
+            
+            self.create_performance_radar(rule_performance, filename)
+            self.create_performance_heatmap(rule_performance, filename)
+            self.create_statistical_summary(rule_performance, filename)
+        
+        print(f"{Colors.GREEN}Dashboard generation complete!{Colors.END}")
+
 class RulePerformanceTester:
     def __init__(self, platform_index=0, device_index=0):
         """Initialize OpenCL context and compile kernel"""
+        self.visualizer = None
         self.setup_opencl(platform_index, device_index)
         
     def setup_opencl(self, platform_index: int, device_index: int):
@@ -703,7 +436,8 @@ class RulePerformanceTester:
             platform = platforms[platform_index]
             devices = platform.get_devices(cl.device_type.GPU)
             if not devices:
-                devices = platform.get_devices(cl.device_type.ALL)
+                print(f"{Colors.YELLOW}No GPU devices found, trying CPU...{Colors.END}")
+                devices = platform.get_devices(cl.device_type.CPU)
             if not devices:
                 raise RuntimeError("No OpenCL devices found")
             
@@ -715,12 +449,30 @@ class RulePerformanceTester:
             self.context = cl.Context([device])
             self.queue = cl.CommandQueue(self.context)
             
-            # Build program
-            self.program = cl.Program(self.context, OPENCL_KERNEL_SOURCE).build()
+            # Build program with error handling
+            try:
+                self.program = cl.Program(self.context, OPENCL_KERNEL_SOURCE).build()
+                # Test that kernel exists
+                self.kernel = cl.Kernel(self.program, 'rule_processor')
+                print(f"{Colors.GREEN}OpenCL kernel compiled successfully{Colors.END}")
+            except Exception as e:
+                print(f"{Colors.RED}Kernel compilation failed: {e}{Colors.END}")
+                # Try to get build log
+                try:
+                    build_log = self.program.get_build_info(device, cl.program_build_info.LOG)
+                    print(f"{Colors.YELLOW}Build log: {build_log}{Colors.END}")
+                except:
+                    pass
+                raise
             
         except Exception as e:
             print(f"{Colors.RED}OpenCL initialization failed: {e}{Colors.END}")
             raise
+    
+    def setup_visualization(self, output_dir: str):
+        """Initialize visualization engine"""
+        self.visualizer = VisualizationEngine(output_dir)
+        print(f"{Colors.GREEN}Visualization engine initialized{Colors.END}")
     
     def setup_test_data(self, dictionary_paths: List[str], max_words: int = 1000, use_identical_sets: bool = True):
         """Set up test parameters and load dictionaries"""
@@ -745,13 +497,13 @@ class RulePerformanceTester:
         
         # Configuration parameters
         self.max_word_len = 64
-        self.max_rule_len_padded = 32
-        self.max_output_len_padded = 128
+        self.max_rule_len = 32
+        self.max_result_len = 128
         self.iterations = 50  # Number of iterations for averaging
         
         print(f"{Colors.GREEN}Loaded {len(self.test_words)} test words{Colors.END}")
         print(f"{Colors.CYAN}Max word length: {self.max_word_len}{Colors.END}")
-        print(f"{Colors.CYAN}Max rule length: {self.max_rule_len_padded}{Colors.END}")
+        print(f"{Colors.CYAN}Max rule length: {self.max_rule_len}{Colors.END}")
         print(f"{Colors.CYAN}Test iterations: {self.iterations}{Colors.END}")
     
     def load_dictionaries(self, dictionary_paths: List[str], max_words: int = 1000) -> List[bytes]:
@@ -823,19 +575,14 @@ class RulePerformanceTester:
     
     def prepare_rule_buffers(self, rules: List[bytes]) -> Tuple[cl.Buffer, int]:
         """Prepare rule buffers for OpenCL kernel"""
-        # Convert rules to the format expected by the kernel
-        # Each rule is stored as: [rule_id (ushort), rule_chars...]
-        rule_buffer_size = len(rules) * (self.max_rule_len_padded + 1) * 2  # *2 for ushort
-        rule_data = np.zeros(rule_buffer_size // 2, dtype=np.uint16)  # ushort array
+        # Convert rules to padded format
+        rule_buffer_size = len(rules) * self.max_rule_len
+        rule_data = np.zeros(rule_buffer_size, dtype=np.uint8)
         
-        # Assign rule IDs based on rule type (simplified mapping)
         for i, rule in enumerate(rules):
-            rule_start = i * (self.max_rule_len_padded + 1)
-            rule_data[rule_start] = self.classify_rule(rule)  # rule_id
-            
-            # Copy rule characters
-            for j, char in enumerate(rule[:self.max_rule_len_padded]):
-                rule_data[rule_start + 1 + j] = char
+            rule_start = i * self.max_rule_len
+            for j, char in enumerate(rule[:self.max_rule_len - 1]):
+                rule_data[rule_start + j] = char
         
         # Create OpenCL buffer
         rules_buf = cl.Buffer(self.context, 
@@ -843,37 +590,6 @@ class RulePerformanceTester:
                             hostbuf=rule_data)
         
         return rules_buf, len(rules)
-    
-    def classify_rule(self, rule: bytes) -> int:
-        """Classify rule type for kernel rule_id (simplified mapping)"""
-        if not rule:
-            return 0
-        
-        first_char = rule[0]
-        
-        # Simple rules (l, u, c, C, t, r, k, :, d, f)
-        if first_char in b'lucCtrk:df':
-            return 0
-        # T/D rules
-        elif first_char in b'TD':
-            return 10
-        # s rule
-        elif first_char == b's':
-            return 12
-        # Group A rules (^, $, @)
-        elif first_char in b'^$@':
-            return 13
-        # Group B rules
-        elif first_char in b'p{}[]xOio\'zZq':
-            return 16
-        # New rules
-        elif first_char in b'K*LR+-.,yYe3':
-            return 29
-        # Insert every rules (v)
-        elif first_char == b'v':
-            return 42
-        else:
-            return 0  # Default
     
     def prepare_word_buffers(self, words: List[bytes]) -> Tuple[cl.Buffer, int]:
         """Prepare word buffers for OpenCL kernel"""
@@ -904,32 +620,25 @@ class RulePerformanceTester:
                 rules_buf, num_rules = self.prepare_rule_buffers([rule])
                 
                 # Result buffer
-                result_size = num_words * num_rules * self.max_output_len_padded
+                result_size = num_words * num_rules * self.max_result_len
                 result_buf = cl.Buffer(self.context, cl.mem_flags.WRITE_ONLY, result_size)
                 
                 # Set up kernel execution
                 global_size = (num_words * num_rules,)
                 
                 # Warm-up run (discarded)
-                self.program.bfs_kernel(
-                    self.queue, global_size, None,
-                    words_buf, rules_buf, result_buf,
-                    np.uint32(num_words), np.uint32(num_rules),
-                    np.uint32(self.max_word_len), np.uint32(self.max_rule_len_padded),
-                    np.uint32(self.max_output_len_padded)
-                )
+                self.kernel.set_args(words_buf, rules_buf, result_buf,
+                                   np.uint32(num_words), np.uint32(num_rules),
+                                   np.uint32(self.max_word_len), np.uint32(self.max_rule_len),
+                                   np.uint32(self.max_result_len))
+                
+                cl.enqueue_nd_range_kernel(self.queue, self.kernel, global_size, None)
                 self.queue.finish()
                 
                 # Timed execution
                 start_time = time.time()
                 for _ in range(self.iterations):
-                    self.program.bfs_kernel(
-                        self.queue, global_size, None,
-                        words_buf, rules_buf, result_buf,
-                        np.uint32(num_words), np.uint32(num_rules),
-                        np.uint32(self.max_word_len), np.uint32(self.max_rule_len_padded),
-                        np.uint32(self.max_output_len_padded)
-                    )
+                    cl.enqueue_nd_range_kernel(self.queue, self.kernel, global_size, None)
                 self.queue.finish()
                 end_time = time.time()
                 
@@ -969,7 +678,7 @@ class RulePerformanceTester:
                 'error': str(e)
             }
     
-    def test_rule_file_performance(self, rule_file_path: str, test_runs: int = 3) -> List[Tuple[str, Dict[str, Any]]]:
+    def test_rule_file_performance(self, rule_file_path: str, test_runs: int = 3, max_test_rules: int = 1000) -> List[Tuple[str, Dict[str, Any]]]:
         """Test all rules in a rule file and return sorted by performance"""
         print(f"\n{Colors.BOLD}{Colors.CYAN}{'='*60}{Colors.END}")
         print(f"{Colors.BOLD}{Colors.CYAN}Testing rule file: {rule_file_path}{Colors.END}")
@@ -980,6 +689,11 @@ class RulePerformanceTester:
         if not rules:
             print(f"{Colors.RED}No rules found in {rule_file_path}{Colors.END}")
             return []
+        
+        # Limit number of rules for testing
+        if len(rules) > max_test_rules:
+            print(f"{Colors.YELLOW}Limiting to first {max_test_rules} rules (out of {len(rules)}){Colors.END}")
+            rules = rules[:max_test_rules]
         
         # Test each rule
         rule_performance = []
@@ -1012,6 +726,15 @@ class RulePerformanceTester:
         
         success_color = Colors.GREEN if successful_tests == total_rules else Colors.YELLOW if successful_tests > total_rules * 0.8 else Colors.RED
         print(f"\n{success_color}Completed: {successful_tests}/{total_rules} rules successful{Colors.END}")
+        
+        # Generate visualizations if visualizer is available
+        if self.visualizer and rule_performance:
+            base_name = os.path.splitext(os.path.basename(rule_file_path))[0]
+            self.visualizer.generate_dashboard({
+                'rule_performance': rule_performance,
+                'test_runs': test_runs,
+                'timestamp': datetime.now().isoformat()
+            }, base_name)
         
         return rule_performance
     
@@ -1064,7 +787,7 @@ class RulePerformanceTester:
                     "test_iterations": self.iterations,
                     "test_words_count": len(self.test_words),
                     "max_word_len": self.max_word_len,
-                    "max_rule_len": self.max_rule_len_padded
+                    "max_rule_len": self.max_rule_len
                 },
                 "rules": [
                     {
@@ -1086,44 +809,6 @@ class RulePerformanceTester:
             
         except Exception as e:
             print(f"{Colors.RED}Error saving performance report: {e}{Colors.END}")
-    
-    def validate_rule_consistency(self, rule_performance_dict1: Dict, rule_performance_dict2: Dict, threshold_percent: float = 20.0) -> Dict[str, Any]:
-        """Validate that rule performance is consistent across test runs"""
-        consistent_rules = 0
-        total_rules = 0
-        consistency_data = []
-        
-        common_rules = set(rule_performance_dict1.keys()) & set(rule_performance_dict2.keys())
-        
-        for rule_name in common_rules:
-            time1 = rule_performance_dict1[rule_name]['execution_time']
-            time2 = rule_performance_dict2[rule_name]['execution_time']
-            
-            percent_diff = abs(time1 - time2) / min(time1, time2) * 100 if min(time1, time2) > 0 else 100
-            
-            is_consistent = percent_diff <= threshold_percent
-            if is_consistent:
-                consistent_rules += 1
-            
-            consistency_data.append({
-                'rule': rule_name,
-                'time1': time1,
-                'time2': time2,
-                'percent_diff': percent_diff,
-                'consistent': is_consistent
-            })
-            
-            total_rules += 1
-        
-        consistency_ratio = consistent_rules / total_rules if total_rules > 0 else 0
-        
-        return {
-            'total_common_rules': total_rules,
-            'consistent_rules': consistent_rules,
-            'consistency_ratio': consistency_ratio,
-            'threshold_percent': threshold_percent,
-            'consistency_data': consistency_data
-        }
 
 class RuleSetOptimizer:
     def __init__(self, max_rules: int = 1000, max_total_time: float = 60.0):
@@ -1219,39 +904,45 @@ def find_rule_files(rule_paths: List[str]) -> List[str]:
     return rule_files
 
 def print_banner():
-    """Print colorful banner"""
+    """Print enhanced banner with visualization mention"""
     banner = f"""
 {Colors.BOLD}{Colors.CYAN}
 ╔════════════════════════════════════════════════════════════════╗
 ║                HASHCAT RULE PERFORMANCE BENCHMARK             ║
-║                  Enhanced Accuracy + Color Output             ║
+║               Advanced Visualization Edition                  ║
+║                  Michelson-Morley Inspired                    ║
 ╚════════════════════════════════════════════════════════════════╝
+{Colors.END}
+{Colors.YELLOW}
+🔬 Scientific-Grade Performance Analysis
+📊 Advanced Data Visualization  
+⚡ OpenCL GPU Acceleration
+🎯 Michelson-Morley Precision Methodology
 {Colors.END}
 """
     print(banner)
 
 def main():
-    """Main function to run rule performance testing"""
+    """Main function to run rule performance testing with visualizations"""
     print_banner()
     
     parser = argparse.ArgumentParser(
-        description='Hashcat Rule Performance Benchmark Tool with Enhanced Accuracy',
+        description='Hashcat Rule Performance Benchmark Tool with Advanced Visualizations',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f'''
 {Colors.BOLD}Examples:{Colors.END}
-  {Colors.CYAN}# Test specific rule files with specific dictionaries{Colors.END}
-  python3 rule_benchmark.py -r best64.rule combinator.rule -d rockyou.txt passwords.txt
+  {Colors.CYAN}# Basic testing with visualizations{Colors.END}
+  python3 rule_benchmark.py -r best64.rule -d rockyou.txt --visualize
   
-  {Colors.CYAN}# Test all rules in directories with optimization{Colors.END}
-  python3 rule_benchmark.py -r ./rules/ -d ./dictionaries/ --optimize
+  {Colors.CYAN}# Limit number of rules for quick testing{Colors.END}
+  python3 rule_benchmark.py -r best64.rule -d rockyou.txt --max-test-rules 100
   
-  {Colors.CYAN}# Quick test with default settings{Colors.END}
-  python3 rule_benchmark.py -r best64.rule -d rockyou.txt
-  
-  {Colors.CYAN}# High accuracy testing with more runs{Colors.END}
-  python3 rule_benchmark.py -r best64.rule -d rockyou.txt --test-runs 10 --iterations 100
+  {Colors.CYAN}# Full testing with optimization{Colors.END}
+  python3 rule_benchmark.py -r best64.rule -d rockyou.txt --visualize --optimize --max-optimize-rules 500
         '''
     )
+    
+    # Testing arguments
     parser.add_argument('--rules', '-r', nargs='+', required=True,
                        help='Rule files or directories containing .rule files')
     parser.add_argument('--dict', '-d', nargs='+', required=True,
@@ -1264,19 +955,42 @@ def main():
                        help='Number of test runs per rule for statistical accuracy (default: 3)')
     parser.add_argument('--max-words', type=int, default=1000,
                        help='Maximum number of test words to load (default: 1000)')
+    parser.add_argument('--max-test-rules', type=int, default=1000,
+                       help='Maximum number of rules to test (default: 1000)')
+    
+    # Optimization arguments
     parser.add_argument('--optimize', action='store_true',
                        help='Create optimized rule set after benchmarking')
-    parser.add_argument('--max-rules', type=int, default=500,
+    parser.add_argument('--max-optimize-rules', type=int, default=500,
                        help='Maximum rules for optimized set (default: 500)')
     parser.add_argument('--max-time', type=float, default=30.0,
                        help='Maximum total time for optimized set (default: 30.0)')
     parser.add_argument('--identical-dicts', action='store_true',
                        help='Use identical dictionary sets for consistency testing')
     
+    # Visualization arguments
+    parser.add_argument('--visualize', action='store_true',
+                       help='Generate comprehensive visualizations')
+    parser.add_argument('--dpi', type=int, default=300,
+                       help='DPI for output images (default: 300)')
+    parser.add_argument('--visualization-output', default=None,
+                       help='Separate output directory for visualizations')
+    
+    # Device selection arguments
+    parser.add_argument('--platform', type=int, default=0,
+                       help='OpenCL platform index (default: 0)')
+    parser.add_argument('--device', type=int, default=0,
+                       help='OpenCL device index (default: 0)')
+    
     args = parser.parse_args()
     
-    # Create output directory
+    # Create output directories
     os.makedirs(args.output, exist_ok=True)
+    viz_output = args.visualization_output or os.path.join(args.output, 'visualizations')
+    os.makedirs(viz_output, exist_ok=True)
+    
+    # Set matplotlib DPI
+    plt.rcParams['figure.dpi'] = args.dpi
     
     # Find all rule files
     rule_files = find_rule_files(args.rules)
@@ -1288,10 +1002,16 @@ def main():
     for rf in rule_files:
         print(f"  {Colors.CYAN}{rf}{Colors.END}")
     
-    # Create tester instance
+    # Create tester instance with proper device selection
     try:
-        tester = RulePerformanceTester()
+        tester = RulePerformanceTester(platform_index=args.platform, device_index=args.device)
         tester.iterations = args.iterations
+        
+        # Setup visualization if requested
+        if args.visualize:
+            tester.setup_visualization(viz_output)
+            print(f"{Colors.CYAN}Advanced visualization engine activated{Colors.END}")
+        
         tester.setup_test_data(args.dict, args.max_words, use_identical_sets=args.identical_dicts)
     except Exception as e:
         print(f"{Colors.RED}Failed to initialize tester: {e}{Colors.END}")
@@ -1302,7 +1022,7 @@ def main():
     
     for rule_file in rule_files:
         # Test rules and get performance data
-        rule_performance = tester.test_rule_file_performance(rule_file, test_runs=args.test_runs)
+        rule_performance = tester.test_rule_file_performance(rule_file, test_runs=args.test_runs, max_test_rules=args.max_test_rules)
         
         if rule_performance:
             # Generate output filenames
@@ -1338,13 +1058,15 @@ def main():
         print(f"{Colors.BOLD}{Colors.CYAN}Creating Optimized Rule Set{Colors.END}")
         print(f"{Colors.BOLD}{Colors.CYAN}{'='*60}{Colors.END}")
         
-        optimizer = RuleSetOptimizer(max_rules=args.max_rules, max_total_time=args.max_time)
+        optimizer = RuleSetOptimizer(max_rules=args.max_optimize_rules, max_total_time=args.max_time)
         optimized_file = os.path.join(args.output, "optimized_rules.rule")
         optimizer.create_optimized_set(performance_reports, optimized_file)
     
     print(f"\n{Colors.BOLD}{Colors.GREEN}{'='*60}{Colors.END}")
     print(f"{Colors.BOLD}{Colors.GREEN}Rule performance testing completed!{Colors.END}")
     print(f"{Colors.BOLD}{Colors.CYAN}All results saved to: {os.path.abspath(args.output)}{Colors.END}")
+    if args.visualize:
+        print(f"{Colors.BOLD}{Colors.MAGENTA}Visualizations saved to: {os.path.abspath(viz_output)}{Colors.END}")
     print(f"{Colors.BOLD}{Colors.GREEN}{'='*60}{Colors.END}")
 
 if __name__ == "__main__":
