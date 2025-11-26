@@ -214,13 +214,13 @@ tester = RulePerformanceTester(platform_index=0, device_index=0)
 
 MIT License - See LICENSE file for details
 
-**Credits**
+**References**
 
 - Michelson, A. A., & Morley, E. W. (1887). On the Relative Motion of the Earth and the Luminiferous Ether
 - Hashcat Project - Rule-based password recovery
 - OpenCL Specification - Heterogeneous computing
 
-**Acknowledgments**
+**Credits**
 
 - Michelson & Morley (1887) - For inspiring rigorous experimental methodology
 - Hashcat Community - For rule specifications and testing methodologies
