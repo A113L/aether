@@ -228,4 +228,8 @@ MIT License - See LICENSE file for details
 - Hashcat Community - For rule specifications and testing methodologies
 - OpenCL Working Group - For heterogeneous computing standards
 
+**Website**
+
+https://hcrt.pages.dev/aether.static_workflow
+
 "We measure what is measurable, and make measurable what cannot be measured." - Galileo Galilei
