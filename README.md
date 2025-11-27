@@ -1,6 +1,6 @@
 **Hashcat Rule Performance Benchmark**
 
-[![concentrator-MT-50000-statistical.png](https://i.postimg.cc/3xQkyzmg/concentrator-MT-50000-statistical.png)](https://postimg.cc/56p4T7P0)
+[![concentrator-MT-50000-distribution.png](https://i.postimg.cc/X7TXtqLM/concentrator-MT-50000-distribution.png)](https://postimg.cc/8jm161xw)
 
 *"Just as the Michelson-Morley experiment of 1887 sought to measure the fundamental constants of the universe, this tool measures the fundamental performance characteristics of hashcat rules with scientific precision."*
 
