@@ -9,11 +9,11 @@ A scientific-grade performance analysis tool for Hashcat rules with advanced vis
 
 ## Features
 
-- **⚡GPU Accelerated**: OpenCL-powered rule performance testing
-- **Advanced Visualizations**: Radar charts, heatmaps, statistical summaries
-- **Scientific Methodology**: Michelson-Morley inspired precision testing
-- **Rule Optimization**: Automatic generation of optimized rule sets
-- **Performance Metrics**: Execution time, operations/sec, coefficient of variation
+- GPU Accelerated: OpenCL-powered rule performance testing
+- Advanced Visualizations: Radar charts, heatmaps, statistical summaries
+- Scientific Methodology: Michelson-Morley inspired precision testing
+- Rule Optimization Automatic generation of optimized rule sets
+- Performance Metrics: Execution time, operations/sec, coefficient of variation
 
 ## Quick Start
 
