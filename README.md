@@ -39,7 +39,7 @@ python3 aether.py -r test.rule \
 Install Dependencies:
 
 ```
-pip install pyopencl numpy matplotlib seaborn pandas scipy```
+pip install pyopencl numpy matplotlib seaborn pandas scipy
 
 Verify OpenCL Support:
 
