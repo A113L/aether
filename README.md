@@ -9,11 +9,11 @@ A scientific-grade performance analysis tool for Hashcat rules with advanced vis
 
 ## Features
 
-- **⚡ GPU Accelerated**: OpenCL-powered rule performance testing
-- **📊 Advanced Visualizations**: Radar charts, heatmaps, statistical summaries
-- **🎯 Scientific Methodology**: Michelson-Morley inspired precision testing
-- **🔧 Rule Optimization**: Automatic generation of optimized rule sets
-- **📈 Performance Metrics**: Execution time, operations/sec, coefficient of variation
+- **⚡GPU Accelerated**: OpenCL-powered rule performance testing
+- **Advanced Visualizations**: Radar charts, heatmaps, statistical summaries
+- **Scientific Methodology**: Michelson-Morley inspired precision testing
+- **Rule Optimization**: Automatic generation of optimized rule sets
+- **Performance Metrics**: Execution time, operations/sec, coefficient of variation
 
 ## Quick Start
 
@@ -30,7 +30,8 @@ python3 aether.py -r test.rule \
   --optimize \
   --max-optimize-rules 1000 \
   --visualize \
-  --dpi 600
+  --dpi 600 \
+  --identical-dicts
 ```
 
 **Installation**
@@ -166,3 +167,7 @@ The tool uses 50 carefully selected built-in test words, eliminating the need fo
 **License**
 
 MIT License - See LICENSE file for details.
+
+**Website:**
+
+https://hcrt.pages.dev/aether.static_workflow
