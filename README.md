@@ -1,235 +1,168 @@
-**Hashcat Rule Performance Benchmark**
-
-[![concentrator-MT-50000-distribution.png](https://i.postimg.cc/X7TXtqLM/concentrator-MT-50000-distribution.png)](https://postimg.cc/8jm161xw)
+**Aether - Hashcat Rule Performance Benchmark**
 
 *"Just as the Michelson-Morley experiment of 1887 sought to measure the fundamental constants of the universe, this tool measures the fundamental performance characteristics of hashcat rules with scientific precision."*
 
-**Overview**
+```
+# **Hashcat Rule Performance Benchmark**
 
-A high-precision benchmarking tool that empirically measures hashcat rule performance using OpenCL acceleration. Inspired by the rigorous experimental methodology of the Michelson-Morley experiment, this tool provides statistically significant performance data to optimize password cracking rule sets.
+A scientific-grade performance analysis tool for Hashcat rules with advanced visualizations and OpenCL GPU acceleration.
 
-**Scientific Approach**
+## Features
 
-Michelson-Morley Inspiration (1887)
+- **⚡ GPU Accelerated**: OpenCL-powered rule performance testing
+- **📊 Advanced Visualizations**: Radar charts, heatmaps, statistical summaries
+- **🎯 Scientific Methodology**: Michelson-Morley inspired precision testing
+- **🔧 Rule Optimization**: Automatic generation of optimized rule sets
+- **📈 Performance Metrics**: Execution time, operations/sec, coefficient of variation
 
-Just as Michelson and Morley sought to measure the luminiferous ether with unprecedented precision, this tool measures rule performance with:
+## Quick Start
 
-- Interferometric Precision: Multiple test runs with statistical outlier removal
-- Null Hypothesis Testing: Rules must demonstrate consistent performance across identical conditions
-- Control Variables: Identical dictionary sets for reliable comparisons
-- Measurement Accuracy: Coefficient of Variation (CV) calculations to quantify uncertainty
+### Basic Testing
 
-**Key Metrics Measured**
+python3 rule_benchmark.py -r best64.rule --visualize
 
-- Execution Time (μs): Mean, median with outlier rejection
-- Operations/Second: Throughput calculation
-- Coefficient of Variation: Measurement stability (≤10% = excellent)
-- Statistical Confidence: Multiple runs with 2-sigma outlier removal
+Full Optimization Pipeline
 
-**Features**
-
-- Colorized Terminal Output - Instant visual performance feedback
-- Statistical Robustness - Multiple test runs with outlier detection
-- OpenCL GPU Acceleration - Direct kernel execution for accurate timing
-- Consistency Validation - Michelson-Morley inspired identical-condition testing
-- Performance Ranking - Rules sorted from fastest to slowest
-- Smart Optimization - Create optimized rule sets based on empirical data
+python3 rule_benchmark.py -r test.rule \
+  --iterations 200 \
+  --test-runs 20 \
+  --max-test-rules 10000 \
+  --optimize \
+  --max-optimize-rules 1000 \
+  --visualize \
+  --dpi 600
+```
 
 **Installation**
 
-```
-# Clone repository
-wget https://github.com/A113L/aether/raw/refs/heads/main/aether.py
-
-# Install dependencies
-pip install pyopencl numpy
-
-# Verify OpenCL support
-python -c "import pyopencl as cl; print([d.name for d in cl.get_platforms()[0].get_devices()])"
-```
-```Usage Examples```
-
-*Basic Performance Testing*
-```
-# Test single rule file with dictionary
-python3 rule_benchmark.py -r best64.rule -d rockyou.txt
-```
-*Scientific-Grade Accuracy*
-```
-# High-precision testing (Michelson-Morley approach)
-python3 rule_benchmark.py \
-    -r best64.rule combinator.rule \
-    -d rockyou.txt \
-    --test-runs 10 \
-    --iterations 100 \
-    --identical-dicts \
-    --output ./scientific_results
-```
-
-*Rule Set Optimization*
-```
-# Create optimized rule set from multiple files
-python3 rule_benchmark.py \
-    -r ./rules/ ./more_rules/ \
-    -d ./dictionaries/ \
-    --optimize \
-    --max-rules 500 \
-    --max-time 30.0
-```
-
-*Consistency Validation*
-```
-# Test rule consistency across identical conditions
-python3 rule_benchmark.py \
-    -r best64.rule \
-    -d rockyou.txt rockyou.txt \  # Same dictionary twice
-    --identical-dicts
-```
-
-**Output Interpretation**
-
-*Color-Coded Performance*
-
-🟢 Green: Excellent performance (< 1ms, CV ≤ 10%)
-
-🟡 Yellow: Good performance (1-10ms, CV ≤ 20%)
-
-🔴 Red: Poor performance (> 10ms, CV > 20%)
-
-**Statistical Metrics**
+Install Dependencies:
 
 ```
-{
-  "mean_time": 0.000456,      # Average execution time (seconds)
-  "median_time": 0.000443,    # Median (outlier resistant)
-  "std_time": 0.000023,       # Standard deviation
-  "cv_percent": 5.04,         # Coefficient of Variation (%)
-  "operations_per_sec": 2,193,877  # Throughput
-}
+pip install pyopencl numpy matplotlib seaborn pandas scipy```
+
+Verify OpenCL Support:
+
+python3 -c "import pyopencl as cl; print([d.name for d in cl.get_platforms()[0].get_devices()])"
 ```
 
-**Experimental Methodology**
+**Usage Examples**
+
+*Performance Testing Only*
 
 ```
-1. Control Conditions
-
-# Identical dictionary sets for reliable comparisons
-self.setup_test_data(args.dict, use_identical_sets=True)
-2. Multiple Measurement Runs
-
-# 5 test runs per rule with outlier removal
-performance_data = self.test_single_rule_performance(rule, test_runs=5)
-3. Statistical Processing
-
-# 2-sigma outlier rejection (95% confidence)
-filtered_times = [t for t in execution_times if abs(t - mean) <= 2 * std]
-4. Consistency Validation
-
-# Michelson-Morley inspired consistency checking
-consistency = self.validate_rule_consistency(
-    performance_run1, 
-    performance_run2, 
-    threshold_percent=15.0  # ≤15% difference allowed
-)
+python3 rule_benchmark.py -r rules/ best64.rule --test-runs 5 --iterations 100
 ```
 
-**Sample Results**
-
-Performance Ranking
+*With Optimization*
 
 ```
-# Rules sorted by performance (fastest first)
-# Generated by RulePerformanceTester  
-# Total rules: 64
-# Test date: 2024-01-15 14:30:22
-
-l # 0.000123s 813,008 ops/sec 4.2% CV
-u # 0.000145s 689,655 ops/sec 5.1% CV
-c # 0.000167s 598,802 ops/sec 6.3% CV
-$1 # 0.000189s 529,100 ops/sec 7.8% CV
-^! # 0.000234s 427,350 ops/sec 12.1% CV
+python3 rule_benchmark.py -r rules/ --optimize --max-optimize-rules 500 --max-time 30.0
 ```
 
-**Optimization Report**
+*High-Resolution Visualizations*
 
 ```
-{
-  "optimization_parameters": {
-    "max_rules": 500,
-    "max_total_time": 30.0,
-    "actual_rules_selected": 347,
-    "actual_total_time": 29.876
-  }
-}
+python3 rule_benchmark.py -r rules/ --visualize --dpi 600 --output ./results/
 ```
 
-**Advanced Configuration**
+**Command Line Options**
 
-Accuracy vs Speed Trade-offs
-
-```
-# Research Grade (Highest Accuracy)
-python3 rule_benchmark.py --test-runs 10 --iterations 200 --max-words 2000
-
-# Production Grade (Balanced)
-python3 rule_benchmark.py --test-runs 5 --iterations 100 --max-words 1000
-
-# Development Grade (Fast)
-python3 rule_benchmark.py --test-runs 3 --iterations 50 --max-words 500
-```
-
-**OpenCL Device Selection**
+*Core Options*
 
 ```
-# Manual device selection for specific hardware
-tester = RulePerformanceTester(platform_index=0, device_index=0)
+-r, --rules: Rule files or directories (required)
+
+-o, --output: Output directory (default: ./benchmark_results)
+
+-i, --iterations: Test iterations per rule (default: 50)
+
+--test-runs: Test runs per rule for statistical accuracy (default: 3)
+
+--max-test-rules: Maximum rules to test (default: 1000)
 ```
 
-```Use Cases```
+*Optimization*
 
-- Hash Cracking Optimization
-- Rule Set Tuning: Identify and remove slow-performing rules
-- Strategy Planning: Estimate attack duration for rule sets
+```
+--optimize: Create optimized rule set
 
-**Resource Allocation: Optimize GPU utilization**
+--max-optimize-rules: Maximum rules for optimized set (default: 500)
 
-**Academic Research**
+--max-time: Maximum total time constraint (default: 30.0s)
+```
 
-- Algorithm Analysis: Study rule complexity characteristics
-- Performance Modeling: Build predictive models for rule execution
-- Hardware Benchmarking: Compare GPU performance across devices
+*Visualization*
 
-**Security Assessment**
+```
+--visualize: Generate comprehensive visualizations
 
-- Defense Planning: Understand attacker capabilities
-- Policy Development: Inform password policy decisions
-- Risk Analysis: Quantify rule-based attack effectiveness
+--dpi: Output image DPI (default: 300)
 
-**Statistical Methods**
+--visualization-output: Separate directory for visualizations
+```
 
-- Outlier Detection: 2-sigma rule (95% confidence interval)
-- Central Tendency: Mean and median calculations
-- Variability Measurement: Coefficient of Variation (CV)
-- Consistency Validation: Threshold-based performance matching
+*Advanced*
+
+```
+--identical-dicts: Use identical word sets for consistency
+
+--platform: OpenCL platform index (default: 0)
+
+--device: OpenCL device index (default: 0)
+```
+
+**Output Files**
+
+*_sorted.rule: Rules sorted by performance (fastest first)
+
+*_performance_report.json: Detailed performance metrics
+
+*_radar.png: Performance radar charts
+
+*_heatmap.png: Rule type performance heatmaps
+
+*_statistical.png: Comprehensive statistical summaries
+
+*_distribution.png: Performance distribution analysis
+
+optimized_rules.rule: Generated optimized rule set
+
+*_optimization_report.json: Optimization parameters and results
+
+**Performance Metrics**
+
+- Execution Time: Average time per rule operation
+
+- Operations/Second: Throughput measurement
+
+- Coefficient of Variation: Statistical consistency (lower is better)
+
+- Performance Rank: Relative performance ranking
+
+- Statistical Outliers: Automated outlier detection and removal
+
+**Built-in Test Words**
+
+The tool uses 50 carefully selected built-in test words, eliminating the need for external dictionary files while maintaining testing consistency.
+
+**Visualization Examples**
+
+[![concentrator-MT-25000-radar.png](https://i.postimg.cc/Gm8Yzmsf/concentrator-MT-25000-radar.png)](https://postimg.cc/K1bR8Ff7)
+
+*Performance radar chart showing top 20 rules*
+
+[![concentrator-MT-25000-heatmap.png](https://i.postimg.cc/1X3VFmQ4/concentrator-MT-25000-heatmap.png)](https://postimg.cc/mzKrfGhG)
+
+*Rule type performance heatmap*
+
+**Requirements**
+
+- Python 3.6+
+
+- OpenCL compatible GPU or CPU
+
+- 4GB+ RAM recommended for large rule sets
 
 **License**
 
-MIT License - See LICENSE file for details
-
-**References**
-
-- Michelson, A. A., & Morley, E. W. (1887). On the Relative Motion of the Earth and the Luminiferous Ether
-- Hashcat Project - Rule-based password recovery
-- OpenCL Specification - Heterogeneous computing
-
-**Credits**
-
-- Michelson & Morley (1887) - For inspiring rigorous experimental methodology
-- Hashcat Community - For rule specifications and testing methodologies
-- OpenCL Working Group - For heterogeneous computing standards
-
-**Website**
-
-https://hcrt.pages.dev/aether.static_workflow
-
-"We measure what is measurable, and make measurable what cannot be measured." - Galileo Galilei
+MIT License - See LICENSE file for details.
