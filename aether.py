@@ -197,6 +197,25 @@ __kernel void rule_processor(
 }
 """
 
+def print_banner():
+    """Print enhanced banner with visualization mention"""
+    banner = f"""
+{Colors.BOLD}{Colors.CYAN}
+╔════════════════════════════════════════════════════════════════╗
+║                HASHCAT RULE PERFORMANCE BENCHMARK             ║
+║               Advanced Visualization Edition                  ║
+║                  Michelson-Morley Inspired                    ║
+╚════════════════════════════════════════════════════════════════╝
+{Colors.END}
+{Colors.YELLOW}
+🔬 Scientific-Grade Performance Analysis
+📊 Advanced Data Visualization  
+⚡ OpenCL GPU Acceleration
+🎯 Michelson-Morley Precision Methodology
+{Colors.END}
+"""
+    print(banner)
+
 class VisualizationEngine:
     """Advanced visualization engine for benchmark results"""
     
@@ -321,71 +340,253 @@ class VisualizationEngine:
     def create_statistical_summary(self, rule_performance: List[Tuple[str, Dict]], filename: str):
         """Create comprehensive statistical summary visualization"""
         if not rule_performance:
+            print(f"{Colors.YELLOW}No performance data available for statistical summary{Colors.END}")
             return
             
-        # Extract data
-        rules = [rule for rule, _ in rule_performance]
-        times = [data['execution_time'] * 1000000 for _, data in rule_performance]
-        cv_values = [data['metrics']['cv_percent'] for _, data in rule_performance]
-        ops_sec = [data['operations_per_sec'] for _, data in rule_performance]
-        
-        # Create subplots
-        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-        
-        # 1. Performance distribution
-        axes[0,0].hist(times, bins=30, alpha=0.7, color='skyblue', edgecolor='black')
-        axes[0,0].axvline(np.mean(times), color='red', linestyle='--', label=f'Mean: {np.mean(times):.2f}μs')
-        axes[0,0].axvline(np.median(times), color='green', linestyle='--', label=f'Median: {np.median(times):.2f}μs')
-        axes[0,0].set_xlabel('Execution Time (μs)')
-        axes[0,0].set_ylabel('Frequency')
-        axes[0,0].set_title('Performance Distribution')
-        axes[0,0].legend()
-        axes[0,0].grid(True, alpha=0.3)
-        
-        # 2. Consistency vs Performance
-        scatter = axes[0,1].scatter(times, cv_values, c=ops_sec, cmap='viridis', 
-                                  alpha=0.6, s=50, edgecolors='black', linewidth=0.5)
-        axes[0,1].set_xlabel('Execution Time (μs)')
-        axes[0,1].set_ylabel('Coefficient of Variation (%)')
-        axes[0,1].set_title('Performance vs Consistency')
-        plt.colorbar(scatter, ax=axes[0,1], label='Operations/sec')
-        axes[0,1].grid(True, alpha=0.3)
-        
-        # 3. Top 10 fastest rules
-        top_10 = rule_performance[:10]
-        top_rules = [f"{rule[:15]}..." if len(rule) > 15 else rule for rule, _ in top_10]
-        top_times = [data['execution_time'] * 1000000 for _, data in top_10]
-        
-        bars = axes[1,0].barh(top_rules, top_times, 
-                            color=plt.cm.Greens_r(np.linspace(0.2, 0.8, len(top_rules))))
-        axes[1,0].set_xlabel('Execution Time (μs)')
-        axes[1,0].set_title('Top 10 Fastest Rules')
-        axes[1,0].grid(True, alpha=0.3, axis='x')
-        
-        # Add value labels on bars
-        for bar in bars:
-            width = bar.get_width()
-            axes[1,0].text(width, bar.get_y() + bar.get_height()/2, 
-                         f'{width:.2f}μs', ha='left', va='center', fontsize=8)
-        
-        # 4. Performance categories
-        fast = len([t for t in times if t < 10])
-        medium = len([t for t in times if 10 <= t < 100])
-        slow = len([t for t in times if t >= 100])
-        
-        categories = ['Fast (<10μs)', 'Medium (10-100μs)', 'Slow (≥100μs)']
-        counts = [fast, medium, slow]
-        colors = ['#2ecc71', '#f39c12', '#e74c3c']
-        
-        axes[1,1].pie(counts, labels=categories, colors=colors, autopct='%1.1f%%', startangle=90)
-        axes[1,1].set_title('Performance Categories Distribution')
-        
-        plt.suptitle('Comprehensive Statistical Summary', fontsize=16, y=0.98)
-        plt.tight_layout()
-        plt.savefig(os.path.join(self.output_dir, f"{filename}_statistical.png"), dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        print(f"{Colors.GREEN}Statistical summary saved: {filename}_statistical.png{Colors.END}")
+        try:
+            # Extract data with error handling
+            rules = [rule for rule, _ in rule_performance]
+            times = []
+            cv_values = []
+            ops_sec = []
+            
+            for _, data in rule_performance:
+                if 'execution_time' in data:
+                    times.append(data['execution_time'] * 1000000)  # Convert to microseconds
+                if 'metrics' in data and 'cv_percent' in data['metrics']:
+                    cv_values.append(data['metrics']['cv_percent'])
+                if 'operations_per_sec' in data:
+                    ops_sec.append(data['operations_per_sec'])
+            
+            if not times:
+                print(f"{Colors.RED}No execution time data available for statistical summary{Colors.END}")
+                return
+            
+            # Create subplots with proper error handling
+            fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+            
+            # 1. Performance distribution
+            if times:
+                axes[0,0].hist(times, bins=30, alpha=0.7, color='skyblue', edgecolor='black')
+                axes[0,0].axvline(np.mean(times), color='red', linestyle='--', 
+                                label=f'Mean: {np.mean(times):.2f}μs')
+                axes[0,0].axvline(np.median(times), color='green', linestyle='--', 
+                                label=f'Median: {np.median(times):.2f}μs')
+                axes[0,0].set_xlabel('Execution Time (μs)')
+                axes[0,0].set_ylabel('Frequency')
+                axes[0,0].set_title('Performance Distribution')
+                axes[0,0].legend()
+                axes[0,0].grid(True, alpha=0.3)
+            else:
+                axes[0,0].text(0.5, 0.5, 'No performance data', 
+                             ha='center', va='center', transform=axes[0,0].transAxes)
+                axes[0,0].set_title('Performance Distribution (No Data)')
+            
+            # 2. Consistency vs Performance
+            if times and cv_values and len(times) == len(cv_values):
+                scatter = axes[0,1].scatter(times, cv_values, c=ops_sec if ops_sec else times, 
+                                          cmap='viridis', alpha=0.6, s=50, edgecolors='black', linewidth=0.5)
+                axes[0,1].set_xlabel('Execution Time (μs)')
+                axes[0,1].set_ylabel('Coefficient of Variation (%)')
+                axes[0,1].set_title('Performance vs Consistency')
+                plt.colorbar(scatter, ax=axes[0,1], label='Operations/sec' if ops_sec else 'Execution Time (μs)')
+                axes[0,1].grid(True, alpha=0.3)
+            else:
+                axes[0,1].text(0.5, 0.5, 'Insufficient data for scatter plot', 
+                             ha='center', va='center', transform=axes[0,1].transAxes)
+                axes[0,1].set_title('Performance vs Consistency (No Data)')
+            
+            # 3. Top 10 fastest rules
+            if rule_performance:
+                top_10 = rule_performance[:min(10, len(rule_performance))]
+                top_rules = [f"{rule[:15]}..." if len(rule) > 15 else rule for rule, _ in top_10]
+                top_times = [data['execution_time'] * 1000000 for _, data in top_10]
+                
+                bars = axes[1,0].barh(top_rules, top_times, 
+                                    color=plt.cm.Greens_r(np.linspace(0.2, 0.8, len(top_rules))))
+                axes[1,0].set_xlabel('Execution Time (μs)')
+                axes[1,0].set_title('Top 10 Fastest Rules')
+                axes[1,0].grid(True, alpha=0.3, axis='x')
+                
+                # Add value labels on bars
+                for bar in bars:
+                    width = bar.get_width()
+                    axes[1,0].text(width, bar.get_y() + bar.get_height()/2, 
+                                 f'{width:.2f}μs', ha='left', va='center', fontsize=8)
+            else:
+                axes[1,0].text(0.5, 0.5, 'No rule performance data', 
+                             ha='center', va='center', transform=axes[1,0].transAxes)
+                axes[1,0].set_title('Top 10 Fastest Rules (No Data)')
+            
+            # 4. Performance categories
+            if times:
+                fast = len([t for t in times if t < 10])
+                medium = len([t for t in times if 10 <= t < 100])
+                slow = len([t for t in times if t >= 100])
+                
+                categories = ['Fast (<10μs)', 'Medium (10-100μs)', 'Slow (≥100μs)']
+                counts = [fast, medium, slow]
+                colors = ['#2ecc71', '#f39c12', '#e74c3c']
+                
+                # Only show categories that have data
+                valid_categories = []
+                valid_counts = []
+                valid_colors = []
+                
+                for cat, count, color in zip(categories, counts, colors):
+                    if count > 0:
+                        valid_categories.append(cat)
+                        valid_counts.append(count)
+                        valid_colors.append(color)
+                
+                if valid_counts:
+                    axes[1,1].pie(valid_counts, labels=valid_categories, colors=valid_colors, 
+                                autopct='%1.1f%%', startangle=90)
+                    axes[1,1].set_title('Performance Categories Distribution')
+                else:
+                    axes[1,1].text(0.5, 0.5, 'No performance category data', 
+                                 ha='center', va='center', transform=axes[1,1].transAxes)
+                    axes[1,1].set_title('Performance Categories (No Data)')
+            else:
+                axes[1,1].text(0.5, 0.5, 'No execution time data', 
+                             ha='center', va='center', transform=axes[1,1].transAxes)
+                axes[1,1].set_title('Performance Categories (No Data)')
+            
+            plt.suptitle('Comprehensive Statistical Summary', fontsize=16, y=0.98)
+            plt.tight_layout()
+            plt.savefig(os.path.join(self.output_dir, f"{filename}_statistical.png"), dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            print(f"{Colors.GREEN}Statistical summary saved: {filename}_statistical.png{Colors.END}")
+            
+        except Exception as e:
+            print(f"{Colors.RED}Error creating statistical summary: {e}{Colors.END}")
+            import traceback
+            traceback.print_exc()
+    
+    def create_performance_distribution(self, rule_performance: List[Tuple[str, Dict]], filename: str):
+        """Create dedicated performance distribution visualization"""
+        if not rule_performance:
+            print(f"{Colors.YELLOW}No performance data available for distribution plot{Colors.END}")
+            return
+            
+        try:
+            # Extract execution times
+            times = [data['execution_time'] * 1000000 for _, data in rule_performance]  # Convert to microseconds
+            
+            if not times:
+                print(f"{Colors.RED}No execution time data available{Colors.END}")
+                return
+            
+            # Create figure with multiple subplots
+            fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+            
+            # 1. Histogram with distribution curve
+            n, bins, patches = axes[0,0].hist(times, bins=30, alpha=0.7, color='lightblue', 
+                                            edgecolor='black', density=True, label='Distribution')
+            
+            # Add density curve
+            try:
+                from scipy.stats import gaussian_kde
+                density = gaussian_kde(times)
+                xs = np.linspace(min(times), max(times), 200)
+                axes[0,0].plot(xs, density(xs), 'r-', linewidth=2, label='Density Curve')
+            except ImportError:
+                # Fallback if scipy not available - use simple histogram
+                axes[0,0].hist(times, bins=30, alpha=0.7, color='lightblue', edgecolor='black')
+                print(f"{Colors.YELLOW}SciPy not available, using basic histogram{Colors.END}")
+            except Exception:
+                # Other errors
+                pass
+            
+            axes[0,0].axvline(np.mean(times), color='red', linestyle='--', linewidth=2, 
+                            label=f'Mean: {np.mean(times):.2f}μs')
+            axes[0,0].axvline(np.median(times), color='green', linestyle='--', linewidth=2,
+                            label=f'Median: {np.median(times):.2f}μs')
+            axes[0,0].set_xlabel('Execution Time (μs)')
+            axes[0,0].set_ylabel('Density')
+            axes[0,0].set_title('Performance Distribution with Density Curve')
+            axes[0,0].legend()
+            axes[0,0].grid(True, alpha=0.3)
+            
+            # 2. Box plot
+            box_data = [times]
+            box_plot = axes[0,1].boxplot(box_data, vert=True, patch_artist=True,
+                            boxprops=dict(facecolor='lightgreen', alpha=0.7),
+                            medianprops=dict(color='red', linewidth=2))
+            axes[0,1].set_ylabel('Execution Time (μs)')
+            axes[0,1].set_title('Performance Box Plot')
+            # Fix: Use set_xticks and set_xticklabels together
+            axes[0,1].set_xticks([1])
+            axes[0,1].set_xticklabels(['All Rules'])
+            axes[0,1].grid(True, alpha=0.3)
+            
+            # Add statistical annotations to box plot
+            stats_text = f"""Statistics:
+Mean: {np.mean(times):.2f}μs
+Median: {np.median(times):.2f}μs
+Std: {np.std(times):.2f}μs
+Min: {np.min(times):.2f}μs
+Max: {np.max(times):.2f}μs
+Q1: {np.percentile(times, 25):.2f}μs
+Q3: {np.percentile(times, 75):.2f}μs"""
+            
+            axes[0,1].text(1.05, 0.95, stats_text, transform=axes[0,1].transAxes, 
+                         verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
+                         fontfamily='monospace', fontsize=8)
+            
+            # 3. Cumulative distribution
+            sorted_times = np.sort(times)
+            cdf = np.arange(1, len(sorted_times) + 1) / len(sorted_times)
+            axes[1,0].plot(sorted_times, cdf, 'b-', linewidth=2, label='CDF')
+            axes[1,0].set_xlabel('Execution Time (μs)')
+            axes[1,0].set_ylabel('Cumulative Probability')
+            axes[1,0].set_title('Cumulative Distribution Function')
+            axes[1,0].grid(True, alpha=0.3)
+            axes[1,0].legend()
+            
+            # Add percentiles to CDF
+            percentiles = [25, 50, 75, 90, 95]
+            for p in percentiles:
+                p_value = np.percentile(times, p)
+                axes[1,0].axvline(p_value, color='red', linestyle='--', alpha=0.7)
+                axes[1,0].text(p_value, 0.5, f'{p}%', rotation=90, va='center', ha='right')
+            
+            # 4. Violin plot for distribution
+            try:
+                violin_parts = axes[1,1].violinplot([times], showmeans=True, showmedians=True)
+                # Style the violin plot
+                for pc in violin_parts['bodies']:
+                    pc.set_facecolor('lightcoral')
+                    pc.set_alpha(0.7)
+                violin_parts['cmeans'].set_color('green')
+                violin_parts['cmedians'].set_color('blue')
+                
+                axes[1,1].set_ylabel('Execution Time (μs)')
+                axes[1,1].set_title('Performance Violin Plot')
+                # Fix: Use set_xticks and set_xticklabels together for violin plot
+                axes[1,1].set_xticks([1])
+                axes[1,1].set_xticklabels(['All Rules'])
+                axes[1,1].grid(True, alpha=0.3)
+            except:
+                # Fallback if violin plot fails
+                axes[1,1].hist(times, bins=30, alpha=0.7, color='lightcoral', edgecolor='black')
+                axes[1,1].set_xlabel('Execution Time (μs)')
+                axes[1,1].set_ylabel('Frequency')
+                axes[1,1].set_title('Performance Distribution (Fallback)')
+                axes[1,1].grid(True, alpha=0.3)
+            
+            plt.suptitle('Detailed Performance Distribution Analysis', fontsize=16, y=0.98)
+            plt.tight_layout()
+            plt.savefig(os.path.join(self.output_dir, f"{filename}_distribution.png"), dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            print(f"{Colors.GREEN}Performance distribution saved: {filename}_distribution.png{Colors.END}")
+            
+        except Exception as e:
+            print(f"{Colors.RED}Error creating performance distribution: {e}{Colors.END}")
+            import traceback
+            traceback.print_exc()
     
     def normalize_data(self, data: List[float], invert: bool = False) -> List[float]:
         """Normalize data to 0-1 range"""
@@ -416,6 +617,7 @@ class VisualizationEngine:
             self.create_performance_radar(rule_performance, filename)
             self.create_performance_heatmap(rule_performance, filename)
             self.create_statistical_summary(rule_performance, filename)
+            self.create_performance_distribution(rule_performance, filename)  # Add dedicated distribution plot
         
         print(f"{Colors.GREEN}Dashboard generation complete!{Colors.END}")
 
@@ -475,76 +677,123 @@ class RulePerformanceTester:
         print(f"{Colors.GREEN}Visualization engine initialized{Colors.END}")
     
     def setup_test_data(self, dictionary_paths: List[str], max_words: int = 1000, use_identical_sets: bool = True):
-        """Set up test parameters and load dictionaries"""
+        """Set up test parameters and load dictionaries - FIXED VERSION"""
+        
+        # Load words FIRST, then check if we got any
         if use_identical_sets and len(dictionary_paths) >= 1:
             # For consistency testing, use only the first dictionary
             primary_dict = dictionary_paths[0]
-            self.test_words = self.load_dictionaries([primary_dict], max_words)
+            loaded_words = self.load_dictionaries([primary_dict], max_words)
             print(f"{Colors.CYAN}Using identical word set from {primary_dict} for all tests{Colors.END}")
         else:
             # Original behavior - combine dictionaries
-            self.test_words = self.load_dictionaries(dictionary_paths, max_words)
+            loaded_words = self.load_dictionaries(dictionary_paths, max_words)
         
-        if not self.test_words:
+        # Check if we successfully loaded any words
+        if not loaded_words:
             # Fallback test words if no dictionaries found
-            self.test_words = [
+            loaded_words = [
                 b"password", b"123456", b"qwerty", b"letmein", 
                 b"welcome", b"monkey", b"dragon", b"master",
                 b"hello", b"freedom", b"whatever", b"computer",
                 b"internet", b"sunshine", b"princess", b"charlie"
             ]
-            print(f"{Colors.YELLOW}Using built-in test words (no dictionaries loaded){Colors.END}")
+            print(f"{Colors.YELLOW}No dictionaries loaded, using built-in test words ({len(loaded_words)} words){Colors.END}")
+        else:
+            print(f"{Colors.GREEN}Successfully loaded {len(loaded_words)} words from dictionaries{Colors.END}")
+        
+        self.test_words = loaded_words
         
         # Configuration parameters
         self.max_word_len = 64
         self.max_rule_len = 32
         self.max_result_len = 128
-        self.iterations = 50  # Number of iterations for averaging
         
-        print(f"{Colors.GREEN}Loaded {len(self.test_words)} test words{Colors.END}")
+        print(f"{Colors.GREEN}Final test word count: {len(self.test_words)} words{Colors.END}")
         print(f"{Colors.CYAN}Max word length: {self.max_word_len}{Colors.END}")
         print(f"{Colors.CYAN}Max rule length: {self.max_rule_len}{Colors.END}")
-        print(f"{Colors.CYAN}Test iterations: {self.iterations}{Colors.END}")
     
     def load_dictionaries(self, dictionary_paths: List[str], max_words: int = 1000) -> List[bytes]:
-        """Load words from dictionary files"""
+        """Load words from dictionary files - COMPLETELY FIXED VERSION"""
         words = []
         total_loaded = 0
         
+        if not dictionary_paths:
+            print(f"{Colors.YELLOW}No dictionary paths provided{Colors.END}")
+            return words
+        
+        print(f"{Colors.CYAN}Loading up to {max_words} words from {len(dictionary_paths)} dictionary path(s){Colors.END}")
+        
         for dict_path in dictionary_paths:
             if total_loaded >= max_words:
+                print(f"{Colors.YELLOW}Reached max words limit ({max_words}), stopping dictionary loading{Colors.END}")
                 break
                 
             if os.path.isfile(dict_path):
                 try:
+                    words_from_file = []
+                    file_word_count = 0
                     with open(dict_path, 'rb') as f:
                         for line in f:
                             if total_loaded >= max_words:
                                 break
                             word = line.strip()
                             if word and len(word) < self.max_word_len:
-                                words.append(word)
+                                words_from_file.append(word)
                                 total_loaded += 1
-                    print(f"{Colors.GREEN}Loaded {total_loaded} words from {dict_path}{Colors.END}")
+                                file_word_count += 1
+                    
+                    words.extend(words_from_file)
+                    print(f"{Colors.GREEN}Loaded {file_word_count} words from {dict_path} (total: {total_loaded}/{max_words}){Colors.END}")
+                    
                 except Exception as e:
                     print(f"{Colors.RED}Error loading dictionary {dict_path}: {e}{Colors.END}")
             elif os.path.isdir(dict_path):
                 # Load all files in directory
+                print(f"{Colors.CYAN}Searching directory: {dict_path}{Colors.END}")
+                file_count = 0
                 for file_path in Path(dict_path).glob('*'):
-                    if file_path.is_file() and total_loaded < max_words:
-                        try:
-                            with open(file_path, 'rb') as f:
-                                for line in f:
-                                    if total_loaded >= max_words:
-                                        break
-                                    word = line.strip()
-                                    if word and len(word) < self.max_word_len:
-                                        words.append(word)
-                                        total_loaded += 1
-                            print(f"{Colors.GREEN}Loaded {total_loaded} words from {file_path}{Colors.END}")
-                        except Exception as e:
-                            print(f"{Colors.RED}Error loading dictionary {file_path}: {e}{Colors.END}")
+                    if not file_path.is_file() or total_loaded >= max_words:
+                        continue
+                        
+                    try:
+                        words_from_file = []
+                        file_word_count = 0
+                        with open(file_path, 'rb') as f:
+                            for line in f:
+                                if total_loaded >= max_words:
+                                    break
+                                word = line.strip()
+                                if word and len(word) < self.max_word_len:
+                                    words_from_file.append(word)
+                                    total_loaded += 1
+                                    file_word_count += 1
+                        
+                        if words_from_file:
+                            words.extend(words_from_file)
+                            file_count += 1
+                            print(f"{Colors.GREEN}Loaded {file_word_count} words from {file_path.name} (total: {total_loaded}/{max_words}){Colors.END}")
+                            
+                    except Exception as e:
+                        print(f"{Colors.YELLOW}Could not read {file_path}: {e}{Colors.END}")
+                
+                print(f"{Colors.CYAN}Processed {file_count} files from directory {dict_path}{Colors.END}")
+            else:
+                print(f"{Colors.YELLOW}Warning: Path not found or inaccessible: {dict_path}{Colors.END}")
         
+        # Remove duplicates while preserving order
+        unique_words = []
+        seen = set()
+        for word in words:
+            if word not in seen:
+                seen.add(word)
+                unique_words.append(word)
+        
+        if len(unique_words) < len(words):
+            print(f"{Colors.YELLOW}Removed {len(words) - len(unique_words)} duplicate words{Colors.END}")
+            words = unique_words
+        
+        print(f"{Colors.GREEN}Final word count after deduplication: {len(words)} words{Colors.END}")
         return words
     
     def calculate_performance_metrics(self, execution_times: List[float]) -> Dict[str, Any]:
@@ -903,25 +1152,6 @@ def find_rule_files(rule_paths: List[str]) -> List[str]:
     rule_files = sorted(list(set(rule_files)))
     return rule_files
 
-def print_banner():
-    """Print enhanced banner with visualization mention"""
-    banner = f"""
-{Colors.BOLD}{Colors.CYAN}
-╔════════════════════════════════════════════════════════════════╗
-║                HASHCAT RULE PERFORMANCE BENCHMARK             ║
-║               Advanced Visualization Edition                  ║
-║                  Michelson-Morley Inspired                    ║
-╚════════════════════════════════════════════════════════════════╝
-{Colors.END}
-{Colors.YELLOW}
-🔬 Scientific-Grade Performance Analysis
-📊 Advanced Data Visualization  
-⚡ OpenCL GPU Acceleration
-🎯 Michelson-Morley Precision Methodology
-{Colors.END}
-"""
-    print(banner)
-
 def main():
     """Main function to run rule performance testing with visualizations"""
     print_banner()
@@ -1005,6 +1235,7 @@ def main():
     # Create tester instance with proper device selection
     try:
         tester = RulePerformanceTester(platform_index=args.platform, device_index=args.device)
+        # FIXED: Set iterations from command line argument
         tester.iterations = args.iterations
         
         # Setup visualization if requested
@@ -1012,7 +1243,18 @@ def main():
             tester.setup_visualization(viz_output)
             print(f"{Colors.CYAN}Advanced visualization engine activated{Colors.END}")
         
+        # FIXED: Properly pass max_words and dictionary paths
         tester.setup_test_data(args.dict, args.max_words, use_identical_sets=args.identical_dicts)
+        
+        # Print configuration summary
+        print(f"\n{Colors.BOLD}{Colors.CYAN}Configuration Summary:{Colors.END}")
+        print(f"  {Colors.WHITE}Test iterations:{Colors.END} {Colors.YELLOW}{tester.iterations}{Colors.END}")
+        print(f"  {Colors.WHITE}Test runs per rule:{Colors.END} {Colors.YELLOW}{args.test_runs}{Colors.END}")
+        print(f"  {Colors.WHITE}Max test rules:{Colors.END} {Colors.YELLOW}{args.max_test_rules}{Colors.END}")
+        print(f"  {Colors.WHITE}Max words:{Colors.END} {Colors.YELLOW}{args.max_words}{Colors.END}")
+        print(f"  {Colors.WHITE}Test words loaded:{Colors.END} {Colors.YELLOW}{len(tester.test_words)}{Colors.END}")
+        print(f"  {Colors.WHITE}Identical dictionaries:{Colors.END} {Colors.YELLOW}{args.identical_dicts}{Colors.END}")
+        
     except Exception as e:
         print(f"{Colors.RED}Failed to initialize tester: {e}{Colors.END}")
         return
