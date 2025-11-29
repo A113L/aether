@@ -19,11 +19,11 @@ A scientific-grade performance analysis tool for Hashcat rules with advanced vis
 
 ### Basic Testing
 
-python3 rule_benchmark.py -r best64.rule --visualize
+python3 aether.py -r best64.rule --visualize
 
 Full Optimization Pipeline
 
-python3 rule_benchmark.py -r test.rule \
+python3 aether.py -r test.rule \
   --iterations 200 \
   --test-runs 20 \
   --max-test-rules 10000 \
@@ -50,19 +50,19 @@ python3 -c "import pyopencl as cl; print([d.name for d in cl.get_platforms()[0].
 *Performance Testing Only*
 
 ```
-python3 rule_benchmark.py -r rules/ best64.rule --test-runs 5 --iterations 100
+python3 aether.py -r rules/ best64.rule --test-runs 5 --iterations 100
 ```
 
 *With Optimization*
 
 ```
-python3 rule_benchmark.py -r rules/ --optimize --max-optimize-rules 500 --max-time 30.0
+python3 aether.py -r rules/ --optimize --max-optimize-rules 500 --max-time 30.0
 ```
 
 *High-Resolution Visualizations*
 
 ```
-python3 rule_benchmark.py -r rules/ --visualize --dpi 600 --output ./results/
+python3 aether.py -r rules/ --visualize --dpi 600 --output ./results/
 ```
 
 **Command Line Options**
