@@ -216,6 +216,49 @@ def print_banner():
 """
     print(banner)
 
+def confirm_configuration(args):
+    """Display and confirm configuration before starting tests"""
+    print(f"\n{Colors.BOLD}{Colors.CYAN}{'='*80}{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}CONFIGURATION SUMMARY{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}{'='*80}{Colors.END}")
+    
+    config_items = [
+        ("Rule Files", f"{len(args.rules)} file(s): {', '.join([os.path.basename(r) for r in args.rules])}"),
+        ("Output Directory", args.output),
+        ("Test Iterations", f"{args.iterations} per rule"),
+        ("Test Runs", f"{args.test_runs} per rule"),
+        ("Max Test Rules", f"{args.max_test_rules} rules"),
+        ("Optimization", "ENABLED" if args.optimize else "DISABLED"),
+        ("Max Optimize Rules", f"{args.max_optimize_rules} rules" if args.optimize else "N/A"),
+        ("Max Time Constraint", f"{args.max_time}s" if args.optimize else "N/A"),
+        ("Identical Dictionaries", "ENABLED" if args.identical_dicts else "DISABLED"),
+        ("Visualization", "ENABLED" if args.visualize else "DISABLED"),
+        ("Visualization DPI", f"{args.dpi}" if args.visualize else "N/A"),
+        ("OpenCL Platform", f"Index {args.platform}"),
+        ("OpenCL Device", f"Index {args.device}")
+    ]
+    
+    for label, value in config_items:
+        color = Colors.GREEN if "ENABLED" in str(value) else Colors.YELLOW if "DISABLED" in str(value) else Colors.CYAN
+        print(f"  {Colors.WHITE}{label:<25}{Colors.END}: {color}{value}{Colors.END}")
+    
+    print(f"\n{Colors.BOLD}{Colors.YELLOW}Test Words:{Colors.END} {Colors.GREEN}50 built-in words (no external dictionaries){Colors.END}")
+    
+    print(f"\n{Colors.BOLD}{Colors.CYAN}{'='*80}{Colors.END}")
+    
+    # Ask for confirmation
+    try:
+        response = input(f"\n{Colors.YELLOW}Proceed with this configuration? {Colors.WHITE}[Y/n]{Colors.END}: ").strip().lower()
+        if response in ['', 'y', 'yes']:
+            print(f"{Colors.GREEN}Starting benchmark tests...{Colors.END}\n")
+            return True
+        else:
+            print(f"{Colors.RED}Configuration cancelled by user.{Colors.END}")
+            return False
+    except KeyboardInterrupt:
+        print(f"\n{Colors.RED}Configuration cancelled by user.{Colors.END}")
+        return False
+
 class VisualizationEngine:
     """Advanced visualization engine for benchmark results"""
     
@@ -676,125 +719,31 @@ class RulePerformanceTester:
         self.visualizer = VisualizationEngine(output_dir)
         print(f"{Colors.GREEN}Visualization engine initialized{Colors.END}")
     
-    def setup_test_data(self, dictionary_paths: List[str], max_words: int = 1000, use_identical_sets: bool = True):
-        """Set up test parameters and load dictionaries - FIXED VERSION"""
-        
-        # Load words FIRST, then check if we got any
-        if use_identical_sets and len(dictionary_paths) >= 1:
-            # For consistency testing, use only the first dictionary
-            primary_dict = dictionary_paths[0]
-            loaded_words = self.load_dictionaries([primary_dict], max_words)
-            print(f"{Colors.CYAN}Using identical word set from {primary_dict} for all tests{Colors.END}")
-        else:
-            # Original behavior - combine dictionaries
-            loaded_words = self.load_dictionaries(dictionary_paths, max_words)
-        
-        # Check if we successfully loaded any words
-        if not loaded_words:
-            # Fallback test words if no dictionaries found
-            loaded_words = [
-                b"password", b"123456", b"qwerty", b"letmein", 
-                b"welcome", b"monkey", b"dragon", b"master",
-                b"hello", b"freedom", b"whatever", b"computer",
-                b"internet", b"sunshine", b"princess", b"charlie"
-            ]
-            print(f"{Colors.YELLOW}No dictionaries loaded, using built-in test words ({len(loaded_words)} words){Colors.END}")
-        else:
-            print(f"{Colors.GREEN}Successfully loaded {len(loaded_words)} words from dictionaries{Colors.END}")
-        
-        self.test_words = loaded_words
+    def setup_test_data(self, use_identical_sets: bool = True):
+        """Set up test parameters with 50 built-in words"""
+        # Enhanced built-in test words (50 words)
+        self.test_words = [
+            b"password", b"123456", b"qwerty", b"letmein", b"welcome",
+            b"monkey", b"dragon", b"master", b"hello", b"freedom",
+            b"whatever", b"computer", b"internet", b"sunshine", b"princess",
+            b"charlie", b"shadow", b"baseball", b"donald", b"harley",
+            b"hockey", b"thunder", b"mustang", b"merlin", b"cookie",
+            b"ginger", b"silver", b"batman", b"superman", b"starwars",
+            b"matrix", b"butter", b"pepper", b"jasmine", b"orange",
+            b"banana", b"purple", b"diamond", b"crystal", b"midnight",
+            b"heaven", b"secret", b"summer", b"winter", b"spring",
+            b"autumn", b"elephant", b"tiger", b"lion", b"panther"
+        ]
         
         # Configuration parameters
         self.max_word_len = 64
         self.max_rule_len = 32
         self.max_result_len = 128
         
-        print(f"{Colors.GREEN}Final test word count: {len(self.test_words)} words{Colors.END}")
+        print(f"{Colors.GREEN}Using {len(self.test_words)} built-in test words{Colors.END}")
         print(f"{Colors.CYAN}Max word length: {self.max_word_len}{Colors.END}")
         print(f"{Colors.CYAN}Max rule length: {self.max_rule_len}{Colors.END}")
-    
-    def load_dictionaries(self, dictionary_paths: List[str], max_words: int = 1000) -> List[bytes]:
-        """Load words from dictionary files - COMPLETELY FIXED VERSION"""
-        words = []
-        total_loaded = 0
-        
-        if not dictionary_paths:
-            print(f"{Colors.YELLOW}No dictionary paths provided{Colors.END}")
-            return words
-        
-        print(f"{Colors.CYAN}Loading up to {max_words} words from {len(dictionary_paths)} dictionary path(s){Colors.END}")
-        
-        for dict_path in dictionary_paths:
-            if total_loaded >= max_words:
-                print(f"{Colors.YELLOW}Reached max words limit ({max_words}), stopping dictionary loading{Colors.END}")
-                break
-                
-            if os.path.isfile(dict_path):
-                try:
-                    words_from_file = []
-                    file_word_count = 0
-                    with open(dict_path, 'rb') as f:
-                        for line in f:
-                            if total_loaded >= max_words:
-                                break
-                            word = line.strip()
-                            if word and len(word) < self.max_word_len:
-                                words_from_file.append(word)
-                                total_loaded += 1
-                                file_word_count += 1
-                    
-                    words.extend(words_from_file)
-                    print(f"{Colors.GREEN}Loaded {file_word_count} words from {dict_path} (total: {total_loaded}/{max_words}){Colors.END}")
-                    
-                except Exception as e:
-                    print(f"{Colors.RED}Error loading dictionary {dict_path}: {e}{Colors.END}")
-            elif os.path.isdir(dict_path):
-                # Load all files in directory
-                print(f"{Colors.CYAN}Searching directory: {dict_path}{Colors.END}")
-                file_count = 0
-                for file_path in Path(dict_path).glob('*'):
-                    if not file_path.is_file() or total_loaded >= max_words:
-                        continue
-                        
-                    try:
-                        words_from_file = []
-                        file_word_count = 0
-                        with open(file_path, 'rb') as f:
-                            for line in f:
-                                if total_loaded >= max_words:
-                                    break
-                                word = line.strip()
-                                if word and len(word) < self.max_word_len:
-                                    words_from_file.append(word)
-                                    total_loaded += 1
-                                    file_word_count += 1
-                        
-                        if words_from_file:
-                            words.extend(words_from_file)
-                            file_count += 1
-                            print(f"{Colors.GREEN}Loaded {file_word_count} words from {file_path.name} (total: {total_loaded}/{max_words}){Colors.END}")
-                            
-                    except Exception as e:
-                        print(f"{Colors.YELLOW}Could not read {file_path}: {e}{Colors.END}")
-                
-                print(f"{Colors.CYAN}Processed {file_count} files from directory {dict_path}{Colors.END}")
-            else:
-                print(f"{Colors.YELLOW}Warning: Path not found or inaccessible: {dict_path}{Colors.END}")
-        
-        # Remove duplicates while preserving order
-        unique_words = []
-        seen = set()
-        for word in words:
-            if word not in seen:
-                seen.add(word)
-                unique_words.append(word)
-        
-        if len(unique_words) < len(words):
-            print(f"{Colors.YELLOW}Removed {len(words) - len(unique_words)} duplicate words{Colors.END}")
-            words = unique_words
-        
-        print(f"{Colors.GREEN}Final word count after deduplication: {len(words)} words{Colors.END}")
-        return words
+        print(f"{Colors.CYAN}Identical word sets: {use_identical_sets}{Colors.END}")
     
     def calculate_performance_metrics(self, execution_times: List[float]) -> Dict[str, Any]:
         """Calculate robust performance metrics with outlier removal"""
@@ -1162,29 +1111,25 @@ def main():
         epilog=f'''
 {Colors.BOLD}Examples:{Colors.END}
   {Colors.CYAN}# Basic testing with visualizations{Colors.END}
-  python3 rule_benchmark.py -r best64.rule -d rockyou.txt --visualize
+  python3 rule_benchmark.py -r best64.rule --visualize
   
   {Colors.CYAN}# Limit number of rules for quick testing{Colors.END}
-  python3 rule_benchmark.py -r best64.rule -d rockyou.txt --max-test-rules 100
+  python3 rule_benchmark.py -r best64.rule --max-test-rules 100
   
   {Colors.CYAN}# Full testing with optimization{Colors.END}
-  python3 rule_benchmark.py -r best64.rule -d rockyou.txt --visualize --optimize --max-optimize-rules 500
+  python3 rule_benchmark.py -r best64.rule --visualize --optimize --max-optimize-rules 500
         '''
     )
     
     # Testing arguments
     parser.add_argument('--rules', '-r', nargs='+', required=True,
                        help='Rule files or directories containing .rule files')
-    parser.add_argument('--dict', '-d', nargs='+', required=True,
-                       help='Dictionary files or directories for test words')
     parser.add_argument('--output', '-o', default='./benchmark_results',
                        help='Output directory for results (default: ./benchmark_results)')
     parser.add_argument('--iterations', '-i', type=int, default=50,
                        help='Number of test iterations per rule (default: 50)')
     parser.add_argument('--test-runs', type=int, default=3,
                        help='Number of test runs per rule for statistical accuracy (default: 3)')
-    parser.add_argument('--max-words', type=int, default=1000,
-                       help='Maximum number of test words to load (default: 1000)')
     parser.add_argument('--max-test-rules', type=int, default=1000,
                        help='Maximum number of rules to test (default: 1000)')
     
@@ -1232,10 +1177,14 @@ def main():
     for rf in rule_files:
         print(f"  {Colors.CYAN}{rf}{Colors.END}")
     
+    # Confirm configuration before proceeding
+    if not confirm_configuration(args):
+        return
+    
     # Create tester instance with proper device selection
     try:
         tester = RulePerformanceTester(platform_index=args.platform, device_index=args.device)
-        # FIXED: Set iterations from command line argument
+        # Set iterations from command line argument
         tester.iterations = args.iterations
         
         # Setup visualization if requested
@@ -1243,17 +1192,20 @@ def main():
             tester.setup_visualization(viz_output)
             print(f"{Colors.CYAN}Advanced visualization engine activated{Colors.END}")
         
-        # FIXED: Properly pass max_words and dictionary paths
-        tester.setup_test_data(args.dict, args.max_words, use_identical_sets=args.identical_dicts)
+        # Setup test data with 50 built-in words
+        tester.setup_test_data(use_identical_sets=args.identical_dicts)
         
-        # Print configuration summary
-        print(f"\n{Colors.BOLD}{Colors.CYAN}Configuration Summary:{Colors.END}")
+        # Print final configuration summary
+        print(f"\n{Colors.BOLD}{Colors.CYAN}FINAL CONFIGURATION:{Colors.END}")
         print(f"  {Colors.WHITE}Test iterations:{Colors.END} {Colors.YELLOW}{tester.iterations}{Colors.END}")
         print(f"  {Colors.WHITE}Test runs per rule:{Colors.END} {Colors.YELLOW}{args.test_runs}{Colors.END}")
         print(f"  {Colors.WHITE}Max test rules:{Colors.END} {Colors.YELLOW}{args.max_test_rules}{Colors.END}")
-        print(f"  {Colors.WHITE}Max words:{Colors.END} {Colors.YELLOW}{args.max_words}{Colors.END}")
-        print(f"  {Colors.WHITE}Test words loaded:{Colors.END} {Colors.YELLOW}{len(tester.test_words)}{Colors.END}")
+        print(f"  {Colors.WHITE}Test words:{Colors.END} {Colors.YELLOW}{len(tester.test_words)} built-in words{Colors.END}")
         print(f"  {Colors.WHITE}Identical dictionaries:{Colors.END} {Colors.YELLOW}{args.identical_dicts}{Colors.END}")
+        print(f"  {Colors.WHITE}Optimization:{Colors.END} {Colors.YELLOW}{'ENABLED' if args.optimize else 'DISABLED'}{Colors.END}")
+        if args.optimize:
+            print(f"  {Colors.WHITE}Max optimize rules:{Colors.END} {Colors.YELLOW}{args.max_optimize_rules}{Colors.END}")
+            print(f"  {Colors.WHITE}Max time constraint:{Colors.END} {Colors.YELLOW}{args.max_time}s{Colors.END}")
         
     except Exception as e:
         print(f"{Colors.RED}Failed to initialize tester: {e}{Colors.END}")
