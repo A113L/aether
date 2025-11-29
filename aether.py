@@ -10,7 +10,7 @@ import os
 import json
 import argparse
 from pathlib import Path
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any, Set
 import sys
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -260,7 +260,7 @@ def confirm_configuration(args):
         return False
 
 class VisualizationEngine:
-    """Advanced visualization engine for benchmark results"""
+    """Advanced visualization engine for benchmark results - DEDUPLICATED"""
     
     def __init__(self, output_dir: str):
         self.output_dir = output_dir
@@ -274,13 +274,38 @@ class VisualizationEngine:
         plt.rcParams['axes.titlesize'] = 14
         plt.rcParams['axes.labelsize'] = 12
     
+    def deduplicate_rule_performance(self, rule_performance: List[Tuple[str, Dict]]) -> List[Tuple[str, Dict]]:
+        """Remove duplicate rules from performance data, keeping the best performance for each rule"""
+        unique_rules = {}
+        
+        for rule, perf_data in rule_performance:
+            if rule not in unique_rules:
+                unique_rules[rule] = perf_data
+            else:
+                # If we already have this rule, keep the one with better performance
+                if perf_data['execution_time'] < unique_rules[rule]['execution_time']:
+                    unique_rules[rule] = perf_data
+        
+        # Convert back to sorted list
+        deduplicated = [(rule, perf_data) for rule, perf_data in unique_rules.items()]
+        deduplicated.sort(key=lambda x: x[1]['execution_time'])
+        
+        if len(deduplicated) < len(rule_performance):
+            print(f"{Colors.YELLOW}Removed {len(rule_performance) - len(deduplicated)} duplicate rules from visualization{Colors.END}")
+        
+        return deduplicated
+    
     def create_performance_radar(self, rule_performance: List[Tuple[str, Dict]], filename: str):
-        """Create radar chart showing rule performance characteristics"""
-        if not rule_performance:
+        """Create radar chart showing rule performance characteristics - DEDUPLICATED"""
+        # Remove duplicates before visualization
+        unique_performance = self.deduplicate_rule_performance(rule_performance)
+        
+        if not unique_performance:
+            print(f"{Colors.YELLOW}No unique performance data available for radar chart{Colors.END}")
             return
             
-        # Extract top 20 rules for readability
-        top_rules = rule_performance[:20]
+        # Extract top 20 unique rules for readability
+        top_rules = unique_performance[:min(20, len(unique_performance))]
         rules = [f"{rule[:15]}..." if len(rule) > 15 else rule for rule, _ in top_rules]
         times = [data['execution_time'] * 1000000 for _, data in top_rules]  # Convert to microseconds
         ops_sec = [data['operations_per_sec'] / 1000 for _, data in top_rules]  # Convert to K ops/sec
@@ -311,7 +336,7 @@ class VisualizationEngine:
         ax.set_yticks([])
         ax.grid(True, alpha=0.3)
         
-        plt.title('Rule Performance Radar Chart\n(Top 20 Rules)', size=16, pad=20)
+        plt.title('Rule Performance Radar Chart\n(Top 20 Unique Rules)', size=16, pad=20)
         plt.legend(bbox_to_anchor=(1.2, 1.0), loc='upper left')
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, f"{filename}_radar.png"), dpi=300, bbox_inches='tight')
@@ -320,13 +345,17 @@ class VisualizationEngine:
         print(f"{Colors.GREEN}Radar chart saved: {filename}_radar.png{Colors.END}")
     
     def create_performance_heatmap(self, rule_performance: List[Tuple[str, Dict]], filename: str):
-        """Create heatmap showing rule performance patterns"""
-        if not rule_performance:
+        """Create heatmap showing rule performance patterns - DEDUPLICATED"""
+        # Remove duplicates before visualization
+        unique_performance = self.deduplicate_rule_performance(rule_performance)
+        
+        if not unique_performance:
+            print(f"{Colors.YELLOW}No unique performance data available for heatmap{Colors.END}")
             return
             
-        # Categorize rules by type and performance
+        # Categorize unique rules by type and performance
         rule_types = {}
-        for rule, data in rule_performance:
+        for rule, data in unique_performance:
             rule_char = rule[0] if rule else '?'
             if rule_char not in rule_types:
                 rule_types[rule_char] = []
@@ -370,7 +399,7 @@ class VisualizationEngine:
                                  bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.7))
         
         plt.colorbar(im, ax=ax, label='Execution Time (μs)')
-        ax.set_title('Rule Type Performance Heatmap\n(Lower = Faster)', pad=20)
+        ax.set_title('Unique Rule Type Performance Heatmap\n(Lower = Faster)', pad=20)
         ax.set_xticks([])
         ax.set_yticks([])
         
@@ -381,19 +410,22 @@ class VisualizationEngine:
         print(f"{Colors.GREEN}Heatmap saved: {filename}_heatmap.png{Colors.END}")
     
     def create_statistical_summary(self, rule_performance: List[Tuple[str, Dict]], filename: str):
-        """Create comprehensive statistical summary visualization"""
-        if not rule_performance:
-            print(f"{Colors.YELLOW}No performance data available for statistical summary{Colors.END}")
+        """Create comprehensive statistical summary visualization - DEDUPLICATED"""
+        # Remove duplicates before visualization
+        unique_performance = self.deduplicate_rule_performance(rule_performance)
+        
+        if not unique_performance:
+            print(f"{Colors.YELLOW}No unique performance data available for statistical summary{Colors.END}")
             return
             
         try:
             # Extract data with error handling
-            rules = [rule for rule, _ in rule_performance]
+            rules = [rule for rule, _ in unique_performance]
             times = []
             cv_values = []
             ops_sec = []
             
-            for _, data in rule_performance:
+            for _, data in unique_performance:
                 if 'execution_time' in data:
                     times.append(data['execution_time'] * 1000000)  # Convert to microseconds
                 if 'metrics' in data and 'cv_percent' in data['metrics']:
@@ -417,7 +449,7 @@ class VisualizationEngine:
                                 label=f'Median: {np.median(times):.2f}μs')
                 axes[0,0].set_xlabel('Execution Time (μs)')
                 axes[0,0].set_ylabel('Frequency')
-                axes[0,0].set_title('Performance Distribution')
+                axes[0,0].set_title('Unique Rules Performance Distribution')
                 axes[0,0].legend()
                 axes[0,0].grid(True, alpha=0.3)
             else:
@@ -431,7 +463,7 @@ class VisualizationEngine:
                                           cmap='viridis', alpha=0.6, s=50, edgecolors='black', linewidth=0.5)
                 axes[0,1].set_xlabel('Execution Time (μs)')
                 axes[0,1].set_ylabel('Coefficient of Variation (%)')
-                axes[0,1].set_title('Performance vs Consistency')
+                axes[0,1].set_title('Unique Rules: Performance vs Consistency')
                 plt.colorbar(scatter, ax=axes[0,1], label='Operations/sec' if ops_sec else 'Execution Time (μs)')
                 axes[0,1].grid(True, alpha=0.3)
             else:
@@ -439,16 +471,16 @@ class VisualizationEngine:
                              ha='center', va='center', transform=axes[0,1].transAxes)
                 axes[0,1].set_title('Performance vs Consistency (No Data)')
             
-            # 3. Top 10 fastest rules
-            if rule_performance:
-                top_10 = rule_performance[:min(10, len(rule_performance))]
+            # 3. Top 10 fastest unique rules
+            if unique_performance:
+                top_10 = unique_performance[:min(10, len(unique_performance))]
                 top_rules = [f"{rule[:15]}..." if len(rule) > 15 else rule for rule, _ in top_10]
                 top_times = [data['execution_time'] * 1000000 for _, data in top_10]
                 
                 bars = axes[1,0].barh(top_rules, top_times, 
                                     color=plt.cm.Greens_r(np.linspace(0.2, 0.8, len(top_rules))))
                 axes[1,0].set_xlabel('Execution Time (μs)')
-                axes[1,0].set_title('Top 10 Fastest Rules')
+                axes[1,0].set_title('Top 10 Fastest Unique Rules')
                 axes[1,0].grid(True, alpha=0.3, axis='x')
                 
                 # Add value labels on bars
@@ -485,7 +517,7 @@ class VisualizationEngine:
                 if valid_counts:
                     axes[1,1].pie(valid_counts, labels=valid_categories, colors=valid_colors, 
                                 autopct='%1.1f%%', startangle=90)
-                    axes[1,1].set_title('Performance Categories Distribution')
+                    axes[1,1].set_title('Unique Rules Performance Categories')
                 else:
                     axes[1,1].text(0.5, 0.5, 'No performance category data', 
                                  ha='center', va='center', transform=axes[1,1].transAxes)
@@ -495,7 +527,7 @@ class VisualizationEngine:
                              ha='center', va='center', transform=axes[1,1].transAxes)
                 axes[1,1].set_title('Performance Categories (No Data)')
             
-            plt.suptitle('Comprehensive Statistical Summary', fontsize=16, y=0.98)
+            plt.suptitle('Comprehensive Statistical Summary (Unique Rules)', fontsize=16, y=0.98)
             plt.tight_layout()
             plt.savefig(os.path.join(self.output_dir, f"{filename}_statistical.png"), dpi=300, bbox_inches='tight')
             plt.close()
@@ -508,14 +540,17 @@ class VisualizationEngine:
             traceback.print_exc()
     
     def create_performance_distribution(self, rule_performance: List[Tuple[str, Dict]], filename: str):
-        """Create dedicated performance distribution visualization"""
-        if not rule_performance:
-            print(f"{Colors.YELLOW}No performance data available for distribution plot{Colors.END}")
+        """Create dedicated performance distribution visualization - DEDUPLICATED"""
+        # Remove duplicates before visualization
+        unique_performance = self.deduplicate_rule_performance(rule_performance)
+        
+        if not unique_performance:
+            print(f"{Colors.YELLOW}No unique performance data available for distribution plot{Colors.END}")
             return
             
         try:
             # Extract execution times
-            times = [data['execution_time'] * 1000000 for _, data in rule_performance]  # Convert to microseconds
+            times = [data['execution_time'] * 1000000 for _, data in unique_performance]  # Convert to microseconds
             
             if not times:
                 print(f"{Colors.RED}No execution time data available{Colors.END}")
@@ -548,7 +583,7 @@ class VisualizationEngine:
                             label=f'Median: {np.median(times):.2f}μs')
             axes[0,0].set_xlabel('Execution Time (μs)')
             axes[0,0].set_ylabel('Density')
-            axes[0,0].set_title('Performance Distribution with Density Curve')
+            axes[0,0].set_title('Unique Rules Performance Distribution')
             axes[0,0].legend()
             axes[0,0].grid(True, alpha=0.3)
             
@@ -558,10 +593,9 @@ class VisualizationEngine:
                             boxprops=dict(facecolor='lightgreen', alpha=0.7),
                             medianprops=dict(color='red', linewidth=2))
             axes[0,1].set_ylabel('Execution Time (μs)')
-            axes[0,1].set_title('Performance Box Plot')
-            # Fix: Use set_xticks and set_xticklabels together
+            axes[0,1].set_title('Unique Rules Performance Box Plot')
             axes[0,1].set_xticks([1])
-            axes[0,1].set_xticklabels(['All Rules'])
+            axes[0,1].set_xticklabels(['All Unique Rules'])
             axes[0,1].grid(True, alpha=0.3)
             
             # Add statistical annotations to box plot
@@ -572,7 +606,8 @@ Std: {np.std(times):.2f}μs
 Min: {np.min(times):.2f}μs
 Max: {np.max(times):.2f}μs
 Q1: {np.percentile(times, 25):.2f}μs
-Q3: {np.percentile(times, 75):.2f}μs"""
+Q3: {np.percentile(times, 75):.2f}μs
+Unique Rules: {len(times)}"""
             
             axes[0,1].text(1.05, 0.95, stats_text, transform=axes[0,1].transAxes, 
                          verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
@@ -584,7 +619,7 @@ Q3: {np.percentile(times, 75):.2f}μs"""
             axes[1,0].plot(sorted_times, cdf, 'b-', linewidth=2, label='CDF')
             axes[1,0].set_xlabel('Execution Time (μs)')
             axes[1,0].set_ylabel('Cumulative Probability')
-            axes[1,0].set_title('Cumulative Distribution Function')
+            axes[1,0].set_title('Unique Rules Cumulative Distribution')
             axes[1,0].grid(True, alpha=0.3)
             axes[1,0].legend()
             
@@ -606,10 +641,9 @@ Q3: {np.percentile(times, 75):.2f}μs"""
                 violin_parts['cmedians'].set_color('blue')
                 
                 axes[1,1].set_ylabel('Execution Time (μs)')
-                axes[1,1].set_title('Performance Violin Plot')
-                # Fix: Use set_xticks and set_xticklabels together for violin plot
+                axes[1,1].set_title('Unique Rules Performance Violin Plot')
                 axes[1,1].set_xticks([1])
-                axes[1,1].set_xticklabels(['All Rules'])
+                axes[1,1].set_xticklabels(['All Unique Rules'])
                 axes[1,1].grid(True, alpha=0.3)
             except:
                 # Fallback if violin plot fails
@@ -619,7 +653,7 @@ Q3: {np.percentile(times, 75):.2f}μs"""
                 axes[1,1].set_title('Performance Distribution (Fallback)')
                 axes[1,1].grid(True, alpha=0.3)
             
-            plt.suptitle('Detailed Performance Distribution Analysis', fontsize=16, y=0.98)
+            plt.suptitle('Unique Rules Performance Distribution Analysis', fontsize=16, y=0.98)
             plt.tight_layout()
             plt.savefig(os.path.join(self.output_dir, f"{filename}_distribution.png"), dpi=300, bbox_inches='tight')
             plt.close()
@@ -650,19 +684,19 @@ Q3: {np.percentile(times, 75):.2f}μs"""
         return normalized
     
     def generate_dashboard(self, performance_data: Dict, filename: str):
-        """Generate a comprehensive dashboard with all visualizations"""
-        print(f"{Colors.CYAN}Generating comprehensive visualization dashboard...{Colors.END}")
+        """Generate a comprehensive dashboard with all visualizations - DEDUPLICATED"""
+        print(f"{Colors.CYAN}Generating comprehensive visualization dashboard (unique rules only)...{Colors.END}")
         
-        # Create all visualizations
+        # Create all visualizations with deduplication
         if 'rule_performance' in performance_data:
             rule_performance = performance_data['rule_performance']
             
             self.create_performance_radar(rule_performance, filename)
             self.create_performance_heatmap(rule_performance, filename)
             self.create_statistical_summary(rule_performance, filename)
-            self.create_performance_distribution(rule_performance, filename)  # Add dedicated distribution plot
+            self.create_performance_distribution(rule_performance, filename)
         
-        print(f"{Colors.GREEN}Dashboard generation complete!{Colors.END}")
+        print(f"{Colors.GREEN}Dashboard generation complete! (Duplicate rules removed){Colors.END}")
 
 class RulePerformanceTester:
     def __init__(self, platform_index=0, device_index=0):
@@ -1014,8 +1048,9 @@ class RuleSetOptimizer:
         self.max_total_time = max_total_time
     
     def create_optimized_set(self, performance_reports: List[str], output_file: str):
-        """Create optimized rule set from multiple performance reports"""
+        """Create optimized rule set from multiple performance reports - DEDUPLICATED"""
         all_rules = []
+        seen_rules = set()  # Track unique rules to avoid duplicates
         
         # Load performance data from all reports
         for report_file in performance_reports:
@@ -1023,7 +1058,12 @@ class RuleSetOptimizer:
                 try:
                     with open(report_file, 'r') as f:
                         data = json.load(f)
-                        all_rules.extend(data['rules'])
+                        for rule_data in data['rules']:
+                            rule_text = rule_data['rule']
+                            # Only add if we haven't seen this rule before
+                            if rule_text not in seen_rules:
+                                all_rules.append(rule_data)
+                                seen_rules.add(rule_text)
                     print(f"{Colors.GREEN}Loaded performance data from {report_file}{Colors.END}")
                 except Exception as e:
                     print(f"{Colors.RED}Error loading performance report {report_file}: {e}{Colors.END}")
@@ -1031,6 +1071,8 @@ class RuleSetOptimizer:
         if not all_rules:
             print(f"{Colors.RED}No performance data found!{Colors.END}")
             return
+        
+        print(f"{Colors.CYAN}Found {len(all_rules)} unique rules after deduplication{Colors.END}")
         
         # Sort by execution time (fastest first)
         all_rules.sort(key=lambda x: x['execution_time_seconds'])
@@ -1047,8 +1089,8 @@ class RuleSetOptimizer:
         
         # Save optimized rule set
         with open(output_file, 'w') as f:
-            f.write("# Optimized rule set - fastest rules\n")
-            f.write(f"# Total rules: {len(selected_rules)}\n")
+            f.write("# Optimized rule set - fastest unique rules\n")
+            f.write(f"# Total unique rules: {len(selected_rules)}\n")
             f.write(f"# Estimated total time: {total_time:.6f}s\n")
             f.write(f"# Max rules constraint: {self.max_rules}\n")
             f.write(f"# Max time constraint: {self.max_total_time}s\n")
@@ -1064,7 +1106,8 @@ class RuleSetOptimizer:
                 "max_rules": self.max_rules,
                 "max_total_time": self.max_total_time,
                 "actual_rules_selected": len(selected_rules),
-                "actual_total_time": total_time
+                "actual_total_time": total_time,
+                "unique_rules_processed": len(all_rules)
             },
             "selected_rules": selected_rules
         }
@@ -1073,7 +1116,7 @@ class RuleSetOptimizer:
             json.dump(optimization_report, f, indent=2)
         
         print(f"\n{Colors.GREEN}Optimized rule set created: {output_file}{Colors.END}")
-        print(f"{Colors.CYAN}Selected {len(selected_rules)} rules with total time {total_time:.6f}s{Colors.END}")
+        print(f"{Colors.CYAN}Selected {len(selected_rules)} unique rules with total time {total_time:.6f}s{Colors.END}")
         print(f"{Colors.CYAN}Optimization report: {report_file}{Colors.END}")
 
 def find_rule_files(rule_paths: List[str]) -> List[str]:
