@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Hashcat Rule Performance Benchmark Tool with Advanced Visualizations
+Enhanced with Memory-Mapped File Access for Performance
 """
 
 import pyopencl as cl
@@ -10,12 +11,14 @@ import os
 import json
 import argparse
 from pathlib import Path
-from typing import List, Dict, Tuple, Any, Set
+from typing import List, Dict, Tuple, Any, Set, Generator
 import sys
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 from datetime import datetime
+import mmap
+import re
 
 # Color codes for terminal output
 class Colors:
@@ -197,13 +200,167 @@ __kernel void rule_processor(
 }
 """
 
+class MemoryMappedRuleReader:
+    """High-performance rule reader using memory-mapped files"""
+    
+    def __init__(self):
+        self.compiled_patterns = {
+            'comment': re.compile(rb'#.*$'),
+            'inline_comment': re.compile(rb'([^#]*)#.*$'),
+            'empty_line': re.compile(rb'^\s*$')
+        }
+    
+    def read_rules_mmap(self, file_path: str, max_rules: int = None) -> List[bytes]:
+        """Read rules using memory-mapped file for maximum performance"""
+        rules = []
+        file_size = os.path.getsize(file_path)
+        
+        if file_size == 0:
+            print(f"{Colors.YELLOW}Warning: Empty file {file_path}{Colors.END}")
+            return rules
+        
+        try:
+            with open(file_path, 'rb') as f:
+                with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+                    # Process file in chunks for large files
+                    chunk_size = min(1024 * 1024, file_size)  # 1MB chunks or file size
+                    position = 0
+                    current_line = b''
+                    
+                    while position < file_size and (max_rules is None or len(rules) < max_rules):
+                        # Read chunk
+                        chunk = mm[position:position + chunk_size]
+                        if not chunk:
+                            break
+                        
+                        # Process chunk
+                        chunk_end = position + len(chunk)
+                        last_newline = chunk.rfind(b'\n')
+                        
+                        if last_newline != -1:
+                            # Process complete lines in this chunk
+                            complete_chunk = chunk[:last_newline + 1]
+                            lines = (current_line + complete_chunk).split(b'\n')
+                            current_line = lines[-1]  # Save incomplete line for next chunk
+                            
+                            # Process all complete lines
+                            for line in lines[:-1]:
+                                rule = self._process_line(line)
+                                if rule and (max_rules is None or len(rules) < max_rules):
+                                    rules.append(rule)
+                            
+                            position = chunk_end - (len(chunk) - last_newline - 1)
+                        else:
+                            # No newline in chunk, accumulate
+                            current_line += chunk
+                            position = chunk_end
+                    
+                    # Process remaining line
+                    if current_line and (max_rules is None or len(rules) < max_rules):
+                        rule = self._process_line(current_line)
+                        if rule:
+                            rules.append(rule)
+            
+            print(f"{Colors.GREEN}Memory-mapped read {len(rules)} rules from {file_path}{Colors.END}")
+            return rules
+            
+        except Exception as e:
+            print(f"{Colors.RED}Error memory-mapping file {file_path}: {e}{Colors.END}")
+            # Fallback to traditional reading
+            return self.read_rules_traditional(file_path, max_rules)
+    
+    def read_rules_traditional(self, file_path: str, max_rules: int = None) -> List[bytes]:
+        """Traditional file reading (fallback)"""
+        rules = []
+        try:
+            with open(file_path, 'rb') as f:
+                for line in f:
+                    if max_rules is not None and len(rules) >= max_rules:
+                        break
+                    rule = self._process_line(line)
+                    if rule:
+                        rules.append(rule)
+            return rules
+        except Exception as e:
+            print(f"{Colors.RED}Error reading file {file_path}: {e}{Colors.END}")
+            return []
+    
+    def _process_line(self, line: bytes) -> bytes:
+        """Process a single line to extract rule"""
+        line = line.strip()
+        
+        # Skip empty lines and comments
+        if not line or line.startswith(b'#'):
+            return b''
+        
+        # Remove inline comments using regex
+        match = self.compiled_patterns['inline_comment'].match(line)
+        if match:
+            line = match.group(1).strip()
+        
+        return line if line else b''
+    
+    def stream_rules_mmap(self, file_path: str, batch_size: int = 1000) -> Generator[List[bytes], None, None]:
+        """Stream rules using memory-mapped files for large rule sets"""
+        file_size = os.path.getsize(file_path)
+        
+        if file_size == 0:
+            yield []
+            return
+        
+        try:
+            with open(file_path, 'rb') as f:
+                with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+                    batch = []
+                    position = 0
+                    current_line = b''
+                    
+                    while position < file_size:
+                        chunk = mm[position:position + 64 * 1024]  # 64KB chunks
+                        if not chunk:
+                            break
+                        
+                        chunk_end = position + len(chunk)
+                        last_newline = chunk.rfind(b'\n')
+                        
+                        if last_newline != -1:
+                            complete_chunk = chunk[:last_newline + 1]
+                            lines = (current_line + complete_chunk).split(b'\n')
+                            current_line = lines[-1]
+                            
+                            for line in lines[:-1]:
+                                rule = self._process_line(line)
+                                if rule:
+                                    batch.append(rule)
+                                    if len(batch) >= batch_size:
+                                        yield batch
+                                        batch = []
+                            
+                            position = chunk_end - (len(chunk) - last_newline - 1)
+                        else:
+                            current_line += chunk
+                            position = chunk_end
+                    
+                    # Process final batch
+                    if current_line:
+                        rule = self._process_line(current_line)
+                        if rule:
+                            batch.append(rule)
+                    
+                    if batch:
+                        yield batch
+                        
+        except Exception as e:
+            print(f"{Colors.RED}Error streaming rules from {file_path}: {e}{Colors.END}")
+            yield []
+
 def print_banner():
-    """Print enhanced banner with visualization mention"""
+    """Print enhanced banner with performance optimizations mention"""
     banner = f"""
 {Colors.BOLD}{Colors.CYAN}
 ╔════════════════════════════════════════════════════════════════╗
 ║                HASHCAT RULE PERFORMANCE BENCHMARK             ║
-║               Advanced Visualization Edition                  ║
+║               Memory-Mapped Performance Edition               ║
 ║                  Michelson-Morley Inspired                    ║
 ╚════════════════════════════════════════════════════════════════╝
 {Colors.END}
@@ -211,6 +368,7 @@ def print_banner():
 🔬 Scientific-Grade Performance Analysis
 📊 Advanced Data Visualization  
 ⚡ OpenCL GPU Acceleration
+🚀 Memory-Mapped File I/O
 🎯 Michelson-Morley Precision Methodology
 {Colors.END}
 """
@@ -228,6 +386,7 @@ def confirm_configuration(args):
         ("Test Iterations", f"{args.iterations} per rule"),
         ("Test Runs", f"{args.test_runs} per rule"),
         ("Max Test Rules", f"{args.max_test_rules} rules"),
+        ("File I/O Method", f"{'MEMORY-MAPPED' if args.mmap else 'TRADITIONAL'}"),
         ("Optimization", "ENABLED" if args.optimize else "DISABLED"),
         ("Max Optimize Rules", f"{args.max_optimize_rules} rules" if args.optimize else "N/A"),
         ("Max Time Constraint", f"{args.max_time}s" if args.optimize else "N/A"),
@@ -240,6 +399,8 @@ def confirm_configuration(args):
     
     for label, value in config_items:
         color = Colors.GREEN if "ENABLED" in str(value) else Colors.YELLOW if "DISABLED" in str(value) else Colors.CYAN
+        if "MEMORY-MAPPED" in str(value):
+            color = Colors.GREEN
         print(f"  {Colors.WHITE}{label:<25}{Colors.END}: {color}{value}{Colors.END}")
     
     print(f"\n{Colors.BOLD}{Colors.YELLOW}Test Words:{Colors.END} {Colors.GREEN}50 built-in words (no external dictionaries){Colors.END}")
@@ -699,9 +860,11 @@ Unique Rules: {len(times)}"""
         print(f"{Colors.GREEN}Dashboard generation complete! (Duplicate rules removed){Colors.END}")
 
 class RulePerformanceTester:
-    def __init__(self, platform_index=0, device_index=0):
+    def __init__(self, platform_index=0, device_index=0, use_mmap=True):
         """Initialize OpenCL context and compile kernel"""
         self.visualizer = None
+        self.rule_reader = MemoryMappedRuleReader()
+        self.use_mmap = use_mmap
         self.setup_opencl(platform_index, device_index)
         
     def setup_opencl(self, platform_index: int, device_index: int):
@@ -777,6 +940,7 @@ class RulePerformanceTester:
         print(f"{Colors.GREEN}Using {len(self.test_words)} built-in test words{Colors.END}")
         print(f"{Colors.CYAN}Max word length: {self.max_word_len}{Colors.END}")
         print(f"{Colors.CYAN}Max rule length: {self.max_rule_len}{Colors.END}")
+        print(f"{Colors.CYAN}File I/O method: {'MEMORY-MAPPED' if self.use_mmap else 'TRADITIONAL'}{Colors.END}")
         print(f"{Colors.CYAN}Identical word sets: {use_identical_sets}{Colors.END}")
     
     def calculate_performance_metrics(self, execution_times: List[float]) -> Dict[str, Any]:
@@ -910,14 +1074,24 @@ class RulePerformanceTester:
                 'error': str(e)
             }
     
+    def read_rules_from_file(self, file_path: str, max_rules: int = None) -> List[bytes]:
+        """Read rules using memory-mapped files for performance"""
+        if self.use_mmap:
+            return self.rule_reader.read_rules_mmap(file_path, max_rules)
+        else:
+            return self.rule_reader.read_rules_traditional(file_path, max_rules)
+    
     def test_rule_file_performance(self, rule_file_path: str, test_runs: int = 3, max_test_rules: int = 1000) -> List[Tuple[str, Dict[str, Any]]]:
         """Test all rules in a rule file and return sorted by performance"""
         print(f"\n{Colors.BOLD}{Colors.CYAN}{'='*60}{Colors.END}")
         print(f"{Colors.BOLD}{Colors.CYAN}Testing rule file: {rule_file_path}{Colors.END}")
         print(f"{Colors.BOLD}{Colors.CYAN}{'='*60}{Colors.END}")
         
-        # Read rules from file
-        rules = self.read_rules_from_file(rule_file_path)
+        # Read rules from file with performance measurement
+        read_start = time.time()
+        rules = self.read_rules_from_file(rule_file_path, max_test_rules)
+        read_time = time.time() - read_start
+        
         if not rules:
             print(f"{Colors.RED}No rules found in {rule_file_path}{Colors.END}")
             return []
@@ -927,10 +1101,14 @@ class RulePerformanceTester:
             print(f"{Colors.YELLOW}Limiting to first {max_test_rules} rules (out of {len(rules)}){Colors.END}")
             rules = rules[:max_test_rules]
         
+        print(f"{Colors.GREEN}File read time: {read_time:.4f}s ({len(rules)} rules){Colors.END}")
+        
         # Test each rule
         rule_performance = []
         total_rules = len(rules)
         successful_tests = 0
+        
+        test_start_time = time.time()
         
         for i, rule in enumerate(rules):
             rule_str = rule.decode('ascii', errors='ignore')
@@ -953,11 +1131,15 @@ class RulePerformanceTester:
             else:
                 print(f"    {Colors.RED}FAILED: {performance_data.get('error', 'Unknown error')}{Colors.END}")
         
+        total_test_time = time.time() - test_start_time
+        
         # Sort by execution time (fastest first)
         rule_performance.sort(key=lambda x: x[1]['execution_time'])
         
         success_color = Colors.GREEN if successful_tests == total_rules else Colors.YELLOW if successful_tests > total_rules * 0.8 else Colors.RED
         print(f"\n{success_color}Completed: {successful_tests}/{total_rules} rules successful{Colors.END}")
+        print(f"{Colors.CYAN}Total testing time: {total_test_time:.2f}s{Colors.END}")
+        print(f"{Colors.CYAN}Rules per second: {total_rules/total_test_time:.1f}{Colors.END}")
         
         # Generate visualizations if visualizer is available
         if self.visualizer and rule_performance:
@@ -965,31 +1147,12 @@ class RulePerformanceTester:
             self.visualizer.generate_dashboard({
                 'rule_performance': rule_performance,
                 'test_runs': test_runs,
+                'file_read_time': read_time,
+                'total_test_time': total_test_time,
                 'timestamp': datetime.now().isoformat()
             }, base_name)
         
         return rule_performance
-    
-    def read_rules_from_file(self, file_path: str) -> List[bytes]:
-        """Read rules from hashcat rule file"""
-        rules = []
-        try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                for line_num, line in enumerate(f, 1):
-                    line = line.strip()
-                    # Skip empty lines and comments
-                    if not line or line.startswith('#'):
-                        continue
-                    # Remove inline comments
-                    if '#' in line:
-                        line = line.split('#')[0].strip()
-                    if line:  # Only add non-empty lines
-                        rules.append(line.encode('ascii', errors='ignore'))
-            print(f"{Colors.GREEN}Read {len(rules)} rules from {file_path}{Colors.END}")
-        except Exception as e:
-            print(f"{Colors.RED}Error reading rule file {file_path}: {e}{Colors.END}")
-        
-        return rules
     
     def save_sorted_rules(self, rule_performance: List[Tuple[str, Dict[str, Any]]], output_file: str):
         """Save rules sorted by performance to file"""
@@ -1019,7 +1182,8 @@ class RulePerformanceTester:
                     "test_iterations": self.iterations,
                     "test_words_count": len(self.test_words),
                     "max_word_len": self.max_word_len,
-                    "max_rule_len": self.max_rule_len
+                    "max_rule_len": self.max_rule_len,
+                    "file_io_method": "memory-mapped" if self.use_mmap else "traditional"
                 },
                 "rules": [
                     {
@@ -1153,11 +1317,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f'''
 {Colors.BOLD}Examples:{Colors.END}
-  {Colors.CYAN}# Basic testing with visualizations{Colors.END}
-  python3 rule_benchmark.py -r best64.rule --visualize
+  {Colors.CYAN}# Basic testing with memory-mapped files{Colors.END}
+  python3 rule_benchmark.py -r best64.rule --visualize --mmap
   
-  {Colors.CYAN}# Limit number of rules for quick testing{Colors.END}
-  python3 rule_benchmark.py -r best64.rule --max-test-rules 100
+  {Colors.CYAN}# Traditional file reading (fallback){Colors.END}
+  python3 rule_benchmark.py -r best64.rule --no-mmap
+  
+  {Colors.CYAN}# Large rule file testing{Colors.END}
+  python3 rule_benchmark.py -r huge.rule --max-test-rules 5000 --mmap
   
   {Colors.CYAN}# Full testing with optimization{Colors.END}
   python3 rule_benchmark.py -r best64.rule --visualize --optimize --max-optimize-rules 500
@@ -1175,6 +1342,12 @@ def main():
                        help='Number of test runs per rule for statistical accuracy (default: 3)')
     parser.add_argument('--max-test-rules', type=int, default=1000,
                        help='Maximum number of rules to test (default: 1000)')
+    
+    # File I/O arguments
+    parser.add_argument('--mmap', action='store_true', default=True,
+                       help='Use memory-mapped file I/O for better performance (default: True)')
+    parser.add_argument('--no-mmap', action='store_false', dest='mmap',
+                       help='Disable memory-mapped file I/O (use traditional reading)')
     
     # Optimization arguments
     parser.add_argument('--optimize', action='store_true',
@@ -1226,7 +1399,7 @@ def main():
     
     # Create tester instance with proper device selection
     try:
-        tester = RulePerformanceTester(platform_index=args.platform, device_index=args.device)
+        tester = RulePerformanceTester(platform_index=args.platform, device_index=args.device, use_mmap=args.mmap)
         # Set iterations from command line argument
         tester.iterations = args.iterations
         
@@ -1244,6 +1417,7 @@ def main():
         print(f"  {Colors.WHITE}Test runs per rule:{Colors.END} {Colors.YELLOW}{args.test_runs}{Colors.END}")
         print(f"  {Colors.WHITE}Max test rules:{Colors.END} {Colors.YELLOW}{args.max_test_rules}{Colors.END}")
         print(f"  {Colors.WHITE}Test words:{Colors.END} {Colors.YELLOW}{len(tester.test_words)} built-in words{Colors.END}")
+        print(f"  {Colors.WHITE}File I/O method:{Colors.END} {Colors.GREEN if args.mmap else Colors.YELLOW}{'MEMORY-MAPPED' if args.mmap else 'TRADITIONAL'}{Colors.END}")
         print(f"  {Colors.WHITE}Identical dictionaries:{Colors.END} {Colors.YELLOW}{args.identical_dicts}{Colors.END}")
         print(f"  {Colors.WHITE}Optimization:{Colors.END} {Colors.YELLOW}{'ENABLED' if args.optimize else 'DISABLED'}{Colors.END}")
         if args.optimize:
@@ -1304,6 +1478,7 @@ def main():
     print(f"{Colors.BOLD}{Colors.CYAN}All results saved to: {os.path.abspath(args.output)}{Colors.END}")
     if args.visualize:
         print(f"{Colors.BOLD}{Colors.MAGENTA}Visualizations saved to: {os.path.abspath(viz_output)}{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.GREEN}File I/O method used: {'MEMORY-MAPPED' if args.mmap else 'TRADITIONAL'}{Colors.END}")
     print(f"{Colors.BOLD}{Colors.GREEN}{'='*60}{Colors.END}")
 
 if __name__ == "__main__":
