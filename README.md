@@ -58,7 +58,6 @@ python aether.py \
 | -o, --output        | Output directory for results (default: ./benchmark_results) |
 | -i, --iterations    | Number of test iterations per rule (default: 50) |
 | --test-runs         | Number of test runs per rule (default: 3) |
-| --max-words         | Maximum number of words to load from dictionaries (default: 1000) |
 | --max-test-rules    | Maximum number of rules to benchmark (default: 1000) |
 
 ---
