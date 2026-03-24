@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Hashcat Rule Performance Benchmark Tool with Advanced Visualizations
-Enhanced with Memory-Mapped File Access for Performance
 """
 
 import pyopencl as cl
@@ -11,14 +10,12 @@ import os
 import json
 import argparse
 from pathlib import Path
-from typing import List, Dict, Tuple, Any, Set, Generator
+from typing import List, Dict, Tuple, Any
 import sys
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 from datetime import datetime
-import mmap
-import re
 
 # Color codes for terminal output
 class Colors:
@@ -200,167 +197,13 @@ __kernel void rule_processor(
 }
 """
 
-class MemoryMappedRuleReader:
-    """High-performance rule reader using memory-mapped files"""
-    
-    def __init__(self):
-        self.compiled_patterns = {
-            'comment': re.compile(rb'#.*$'),
-            'inline_comment': re.compile(rb'([^#]*)#.*$'),
-            'empty_line': re.compile(rb'^\s*$')
-        }
-    
-    def read_rules_mmap(self, file_path: str, max_rules: int = None) -> List[bytes]:
-        """Read rules using memory-mapped file for maximum performance"""
-        rules = []
-        file_size = os.path.getsize(file_path)
-        
-        if file_size == 0:
-            print(f"{Colors.YELLOW}Warning: Empty file {file_path}{Colors.END}")
-            return rules
-        
-        try:
-            with open(file_path, 'rb') as f:
-                with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
-                    # Process file in chunks for large files
-                    chunk_size = min(1024 * 1024, file_size)  # 1MB chunks or file size
-                    position = 0
-                    current_line = b''
-                    
-                    while position < file_size and (max_rules is None or len(rules) < max_rules):
-                        # Read chunk
-                        chunk = mm[position:position + chunk_size]
-                        if not chunk:
-                            break
-                        
-                        # Process chunk
-                        chunk_end = position + len(chunk)
-                        last_newline = chunk.rfind(b'\n')
-                        
-                        if last_newline != -1:
-                            # Process complete lines in this chunk
-                            complete_chunk = chunk[:last_newline + 1]
-                            lines = (current_line + complete_chunk).split(b'\n')
-                            current_line = lines[-1]  # Save incomplete line for next chunk
-                            
-                            # Process all complete lines
-                            for line in lines[:-1]:
-                                rule = self._process_line(line)
-                                if rule and (max_rules is None or len(rules) < max_rules):
-                                    rules.append(rule)
-                            
-                            position = chunk_end - (len(chunk) - last_newline - 1)
-                        else:
-                            # No newline in chunk, accumulate
-                            current_line += chunk
-                            position = chunk_end
-                    
-                    # Process remaining line
-                    if current_line and (max_rules is None or len(rules) < max_rules):
-                        rule = self._process_line(current_line)
-                        if rule:
-                            rules.append(rule)
-            
-            print(f"{Colors.GREEN}Memory-mapped read {len(rules)} rules from {file_path}{Colors.END}")
-            return rules
-            
-        except Exception as e:
-            print(f"{Colors.RED}Error memory-mapping file {file_path}: {e}{Colors.END}")
-            # Fallback to traditional reading
-            return self.read_rules_traditional(file_path, max_rules)
-    
-    def read_rules_traditional(self, file_path: str, max_rules: int = None) -> List[bytes]:
-        """Traditional file reading (fallback)"""
-        rules = []
-        try:
-            with open(file_path, 'rb') as f:
-                for line in f:
-                    if max_rules is not None and len(rules) >= max_rules:
-                        break
-                    rule = self._process_line(line)
-                    if rule:
-                        rules.append(rule)
-            return rules
-        except Exception as e:
-            print(f"{Colors.RED}Error reading file {file_path}: {e}{Colors.END}")
-            return []
-    
-    def _process_line(self, line: bytes) -> bytes:
-        """Process a single line to extract rule"""
-        line = line.strip()
-        
-        # Skip empty lines and comments
-        if not line or line.startswith(b'#'):
-            return b''
-        
-        # Remove inline comments using regex
-        match = self.compiled_patterns['inline_comment'].match(line)
-        if match:
-            line = match.group(1).strip()
-        
-        return line if line else b''
-    
-    def stream_rules_mmap(self, file_path: str, batch_size: int = 1000) -> Generator[List[bytes], None, None]:
-        """Stream rules using memory-mapped files for large rule sets"""
-        file_size = os.path.getsize(file_path)
-        
-        if file_size == 0:
-            yield []
-            return
-        
-        try:
-            with open(file_path, 'rb') as f:
-                with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
-                    batch = []
-                    position = 0
-                    current_line = b''
-                    
-                    while position < file_size:
-                        chunk = mm[position:position + 64 * 1024]  # 64KB chunks
-                        if not chunk:
-                            break
-                        
-                        chunk_end = position + len(chunk)
-                        last_newline = chunk.rfind(b'\n')
-                        
-                        if last_newline != -1:
-                            complete_chunk = chunk[:last_newline + 1]
-                            lines = (current_line + complete_chunk).split(b'\n')
-                            current_line = lines[-1]
-                            
-                            for line in lines[:-1]:
-                                rule = self._process_line(line)
-                                if rule:
-                                    batch.append(rule)
-                                    if len(batch) >= batch_size:
-                                        yield batch
-                                        batch = []
-                            
-                            position = chunk_end - (len(chunk) - last_newline - 1)
-                        else:
-                            current_line += chunk
-                            position = chunk_end
-                    
-                    # Process final batch
-                    if current_line:
-                        rule = self._process_line(current_line)
-                        if rule:
-                            batch.append(rule)
-                    
-                    if batch:
-                        yield batch
-                        
-        except Exception as e:
-            print(f"{Colors.RED}Error streaming rules from {file_path}: {e}{Colors.END}")
-            yield []
-
 def print_banner():
-    """Print enhanced banner with performance optimizations mention"""
+    """Print enhanced banner with visualization mention"""
     banner = f"""
 {Colors.BOLD}{Colors.CYAN}
 ╔════════════════════════════════════════════════════════════════╗
 ║                HASHCAT RULE PERFORMANCE BENCHMARK             ║
-║               Memory-Mapped Performance Edition               ║
+║               Advanced Visualization Edition                  ║
 ║                  Michelson-Morley Inspired                    ║
 ╚════════════════════════════════════════════════════════════════╝
 {Colors.END}
@@ -368,60 +211,13 @@ def print_banner():
 🔬 Scientific-Grade Performance Analysis
 📊 Advanced Data Visualization  
 ⚡ OpenCL GPU Acceleration
-🚀 Memory-Mapped File I/O
 🎯 Michelson-Morley Precision Methodology
 {Colors.END}
 """
     print(banner)
 
-def confirm_configuration(args):
-    """Display and confirm configuration before starting tests"""
-    print(f"\n{Colors.BOLD}{Colors.CYAN}{'='*80}{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.CYAN}CONFIGURATION SUMMARY{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.CYAN}{'='*80}{Colors.END}")
-    
-    config_items = [
-        ("Rule Files", f"{len(args.rules)} file(s): {', '.join([os.path.basename(r) for r in args.rules])}"),
-        ("Output Directory", args.output),
-        ("Test Iterations", f"{args.iterations} per rule"),
-        ("Test Runs", f"{args.test_runs} per rule"),
-        ("Max Test Rules", f"{args.max_test_rules} rules"),
-        ("File I/O Method", f"{'MEMORY-MAPPED' if args.mmap else 'TRADITIONAL'}"),
-        ("Optimization", "ENABLED" if args.optimize else "DISABLED"),
-        ("Max Optimize Rules", f"{args.max_optimize_rules} rules" if args.optimize else "N/A"),
-        ("Max Time Constraint", f"{args.max_time}s" if args.optimize else "N/A"),
-        ("Identical Dictionaries", "ENABLED" if args.identical_dicts else "DISABLED"),
-        ("Visualization", "ENABLED" if args.visualize else "DISABLED"),
-        ("Visualization DPI", f"{args.dpi}" if args.visualize else "N/A"),
-        ("OpenCL Platform", f"Index {args.platform}"),
-        ("OpenCL Device", f"Index {args.device}")
-    ]
-    
-    for label, value in config_items:
-        color = Colors.GREEN if "ENABLED" in str(value) else Colors.YELLOW if "DISABLED" in str(value) else Colors.CYAN
-        if "MEMORY-MAPPED" in str(value):
-            color = Colors.GREEN
-        print(f"  {Colors.WHITE}{label:<25}{Colors.END}: {color}{value}{Colors.END}")
-    
-    print(f"\n{Colors.BOLD}{Colors.YELLOW}Test Words:{Colors.END} {Colors.GREEN}50 built-in words (no external dictionaries){Colors.END}")
-    
-    print(f"\n{Colors.BOLD}{Colors.CYAN}{'='*80}{Colors.END}")
-    
-    # Ask for confirmation
-    try:
-        response = input(f"\n{Colors.YELLOW}Proceed with this configuration? {Colors.WHITE}[Y/n]{Colors.END}: ").strip().lower()
-        if response in ['', 'y', 'yes']:
-            print(f"{Colors.GREEN}Starting benchmark tests...{Colors.END}\n")
-            return True
-        else:
-            print(f"{Colors.RED}Configuration cancelled by user.{Colors.END}")
-            return False
-    except KeyboardInterrupt:
-        print(f"\n{Colors.RED}Configuration cancelled by user.{Colors.END}")
-        return False
-
 class VisualizationEngine:
-    """Advanced visualization engine for benchmark results - DEDUPLICATED"""
+    """Advanced visualization engine for benchmark results"""
     
     def __init__(self, output_dir: str):
         self.output_dir = output_dir
@@ -435,38 +231,13 @@ class VisualizationEngine:
         plt.rcParams['axes.titlesize'] = 14
         plt.rcParams['axes.labelsize'] = 12
     
-    def deduplicate_rule_performance(self, rule_performance: List[Tuple[str, Dict]]) -> List[Tuple[str, Dict]]:
-        """Remove duplicate rules from performance data, keeping the best performance for each rule"""
-        unique_rules = {}
-        
-        for rule, perf_data in rule_performance:
-            if rule not in unique_rules:
-                unique_rules[rule] = perf_data
-            else:
-                # If we already have this rule, keep the one with better performance
-                if perf_data['execution_time'] < unique_rules[rule]['execution_time']:
-                    unique_rules[rule] = perf_data
-        
-        # Convert back to sorted list
-        deduplicated = [(rule, perf_data) for rule, perf_data in unique_rules.items()]
-        deduplicated.sort(key=lambda x: x[1]['execution_time'])
-        
-        if len(deduplicated) < len(rule_performance):
-            print(f"{Colors.YELLOW}Removed {len(rule_performance) - len(deduplicated)} duplicate rules from visualization{Colors.END}")
-        
-        return deduplicated
-    
     def create_performance_radar(self, rule_performance: List[Tuple[str, Dict]], filename: str):
-        """Create radar chart showing rule performance characteristics - DEDUPLICATED"""
-        # Remove duplicates before visualization
-        unique_performance = self.deduplicate_rule_performance(rule_performance)
-        
-        if not unique_performance:
-            print(f"{Colors.YELLOW}No unique performance data available for radar chart{Colors.END}")
+        """Create radar chart showing rule performance characteristics"""
+        if not rule_performance:
             return
             
-        # Extract top 20 unique rules for readability
-        top_rules = unique_performance[:min(20, len(unique_performance))]
+        # Extract top 20 rules for readability
+        top_rules = rule_performance[:20]
         rules = [f"{rule[:15]}..." if len(rule) > 15 else rule for rule, _ in top_rules]
         times = [data['execution_time'] * 1000000 for _, data in top_rules]  # Convert to microseconds
         ops_sec = [data['operations_per_sec'] / 1000 for _, data in top_rules]  # Convert to K ops/sec
@@ -497,7 +268,7 @@ class VisualizationEngine:
         ax.set_yticks([])
         ax.grid(True, alpha=0.3)
         
-        plt.title('Rule Performance Radar Chart\n(Top 20 Unique Rules)', size=16, pad=20)
+        plt.title('Rule Performance Radar Chart\n(Top 20 Rules)', size=16, pad=20)
         plt.legend(bbox_to_anchor=(1.2, 1.0), loc='upper left')
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, f"{filename}_radar.png"), dpi=300, bbox_inches='tight')
@@ -506,17 +277,13 @@ class VisualizationEngine:
         print(f"{Colors.GREEN}Radar chart saved: {filename}_radar.png{Colors.END}")
     
     def create_performance_heatmap(self, rule_performance: List[Tuple[str, Dict]], filename: str):
-        """Create heatmap showing rule performance patterns - DEDUPLICATED"""
-        # Remove duplicates before visualization
-        unique_performance = self.deduplicate_rule_performance(rule_performance)
-        
-        if not unique_performance:
-            print(f"{Colors.YELLOW}No unique performance data available for heatmap{Colors.END}")
+        """Create heatmap showing rule performance patterns"""
+        if not rule_performance:
             return
             
-        # Categorize unique rules by type and performance
+        # Categorize rules by type and performance
         rule_types = {}
-        for rule, data in unique_performance:
+        for rule, data in rule_performance:
             rule_char = rule[0] if rule else '?'
             if rule_char not in rule_types:
                 rule_types[rule_char] = []
@@ -560,7 +327,7 @@ class VisualizationEngine:
                                  bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.7))
         
         plt.colorbar(im, ax=ax, label='Execution Time (μs)')
-        ax.set_title('Unique Rule Type Performance Heatmap\n(Lower = Faster)', pad=20)
+        ax.set_title('Rule Type Performance Heatmap\n(Lower = Faster)', pad=20)
         ax.set_xticks([])
         ax.set_yticks([])
         
@@ -571,22 +338,19 @@ class VisualizationEngine:
         print(f"{Colors.GREEN}Heatmap saved: {filename}_heatmap.png{Colors.END}")
     
     def create_statistical_summary(self, rule_performance: List[Tuple[str, Dict]], filename: str):
-        """Create comprehensive statistical summary visualization - DEDUPLICATED"""
-        # Remove duplicates before visualization
-        unique_performance = self.deduplicate_rule_performance(rule_performance)
-        
-        if not unique_performance:
-            print(f"{Colors.YELLOW}No unique performance data available for statistical summary{Colors.END}")
+        """Create comprehensive statistical summary visualization"""
+        if not rule_performance:
+            print(f"{Colors.YELLOW}No performance data available for statistical summary{Colors.END}")
             return
             
         try:
             # Extract data with error handling
-            rules = [rule for rule, _ in unique_performance]
+            rules = [rule for rule, _ in rule_performance]
             times = []
             cv_values = []
             ops_sec = []
             
-            for _, data in unique_performance:
+            for _, data in rule_performance:
                 if 'execution_time' in data:
                     times.append(data['execution_time'] * 1000000)  # Convert to microseconds
                 if 'metrics' in data and 'cv_percent' in data['metrics']:
@@ -610,7 +374,7 @@ class VisualizationEngine:
                                 label=f'Median: {np.median(times):.2f}μs')
                 axes[0,0].set_xlabel('Execution Time (μs)')
                 axes[0,0].set_ylabel('Frequency')
-                axes[0,0].set_title('Unique Rules Performance Distribution')
+                axes[0,0].set_title('Performance Distribution')
                 axes[0,0].legend()
                 axes[0,0].grid(True, alpha=0.3)
             else:
@@ -624,7 +388,7 @@ class VisualizationEngine:
                                           cmap='viridis', alpha=0.6, s=50, edgecolors='black', linewidth=0.5)
                 axes[0,1].set_xlabel('Execution Time (μs)')
                 axes[0,1].set_ylabel('Coefficient of Variation (%)')
-                axes[0,1].set_title('Unique Rules: Performance vs Consistency')
+                axes[0,1].set_title('Performance vs Consistency')
                 plt.colorbar(scatter, ax=axes[0,1], label='Operations/sec' if ops_sec else 'Execution Time (μs)')
                 axes[0,1].grid(True, alpha=0.3)
             else:
@@ -632,16 +396,16 @@ class VisualizationEngine:
                              ha='center', va='center', transform=axes[0,1].transAxes)
                 axes[0,1].set_title('Performance vs Consistency (No Data)')
             
-            # 3. Top 10 fastest unique rules
-            if unique_performance:
-                top_10 = unique_performance[:min(10, len(unique_performance))]
+            # 3. Top 10 fastest rules
+            if rule_performance:
+                top_10 = rule_performance[:min(10, len(rule_performance))]
                 top_rules = [f"{rule[:15]}..." if len(rule) > 15 else rule for rule, _ in top_10]
                 top_times = [data['execution_time'] * 1000000 for _, data in top_10]
                 
                 bars = axes[1,0].barh(top_rules, top_times, 
                                     color=plt.cm.Greens_r(np.linspace(0.2, 0.8, len(top_rules))))
                 axes[1,0].set_xlabel('Execution Time (μs)')
-                axes[1,0].set_title('Top 10 Fastest Unique Rules')
+                axes[1,0].set_title('Top 10 Fastest Rules')
                 axes[1,0].grid(True, alpha=0.3, axis='x')
                 
                 # Add value labels on bars
@@ -678,7 +442,7 @@ class VisualizationEngine:
                 if valid_counts:
                     axes[1,1].pie(valid_counts, labels=valid_categories, colors=valid_colors, 
                                 autopct='%1.1f%%', startangle=90)
-                    axes[1,1].set_title('Unique Rules Performance Categories')
+                    axes[1,1].set_title('Performance Categories Distribution')
                 else:
                     axes[1,1].text(0.5, 0.5, 'No performance category data', 
                                  ha='center', va='center', transform=axes[1,1].transAxes)
@@ -688,7 +452,7 @@ class VisualizationEngine:
                              ha='center', va='center', transform=axes[1,1].transAxes)
                 axes[1,1].set_title('Performance Categories (No Data)')
             
-            plt.suptitle('Comprehensive Statistical Summary (Unique Rules)', fontsize=16, y=0.98)
+            plt.suptitle('Comprehensive Statistical Summary', fontsize=16, y=0.98)
             plt.tight_layout()
             plt.savefig(os.path.join(self.output_dir, f"{filename}_statistical.png"), dpi=300, bbox_inches='tight')
             plt.close()
@@ -701,17 +465,14 @@ class VisualizationEngine:
             traceback.print_exc()
     
     def create_performance_distribution(self, rule_performance: List[Tuple[str, Dict]], filename: str):
-        """Create dedicated performance distribution visualization - DEDUPLICATED"""
-        # Remove duplicates before visualization
-        unique_performance = self.deduplicate_rule_performance(rule_performance)
-        
-        if not unique_performance:
-            print(f"{Colors.YELLOW}No unique performance data available for distribution plot{Colors.END}")
+        """Create dedicated performance distribution visualization"""
+        if not rule_performance:
+            print(f"{Colors.YELLOW}No performance data available for distribution plot{Colors.END}")
             return
             
         try:
             # Extract execution times
-            times = [data['execution_time'] * 1000000 for _, data in unique_performance]  # Convert to microseconds
+            times = [data['execution_time'] * 1000000 for _, data in rule_performance]  # Convert to microseconds
             
             if not times:
                 print(f"{Colors.RED}No execution time data available{Colors.END}")
@@ -744,7 +505,7 @@ class VisualizationEngine:
                             label=f'Median: {np.median(times):.2f}μs')
             axes[0,0].set_xlabel('Execution Time (μs)')
             axes[0,0].set_ylabel('Density')
-            axes[0,0].set_title('Unique Rules Performance Distribution')
+            axes[0,0].set_title('Performance Distribution with Density Curve')
             axes[0,0].legend()
             axes[0,0].grid(True, alpha=0.3)
             
@@ -754,9 +515,10 @@ class VisualizationEngine:
                             boxprops=dict(facecolor='lightgreen', alpha=0.7),
                             medianprops=dict(color='red', linewidth=2))
             axes[0,1].set_ylabel('Execution Time (μs)')
-            axes[0,1].set_title('Unique Rules Performance Box Plot')
+            axes[0,1].set_title('Performance Box Plot')
+            # Fix: Use set_xticks and set_xticklabels together
             axes[0,1].set_xticks([1])
-            axes[0,1].set_xticklabels(['All Unique Rules'])
+            axes[0,1].set_xticklabels(['All Rules'])
             axes[0,1].grid(True, alpha=0.3)
             
             # Add statistical annotations to box plot
@@ -767,8 +529,7 @@ Std: {np.std(times):.2f}μs
 Min: {np.min(times):.2f}μs
 Max: {np.max(times):.2f}μs
 Q1: {np.percentile(times, 25):.2f}μs
-Q3: {np.percentile(times, 75):.2f}μs
-Unique Rules: {len(times)}"""
+Q3: {np.percentile(times, 75):.2f}μs"""
             
             axes[0,1].text(1.05, 0.95, stats_text, transform=axes[0,1].transAxes, 
                          verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
@@ -780,7 +541,7 @@ Unique Rules: {len(times)}"""
             axes[1,0].plot(sorted_times, cdf, 'b-', linewidth=2, label='CDF')
             axes[1,0].set_xlabel('Execution Time (μs)')
             axes[1,0].set_ylabel('Cumulative Probability')
-            axes[1,0].set_title('Unique Rules Cumulative Distribution')
+            axes[1,0].set_title('Cumulative Distribution Function')
             axes[1,0].grid(True, alpha=0.3)
             axes[1,0].legend()
             
@@ -802,9 +563,10 @@ Unique Rules: {len(times)}"""
                 violin_parts['cmedians'].set_color('blue')
                 
                 axes[1,1].set_ylabel('Execution Time (μs)')
-                axes[1,1].set_title('Unique Rules Performance Violin Plot')
+                axes[1,1].set_title('Performance Violin Plot')
+                # Fix: Use set_xticks and set_xticklabels together for violin plot
                 axes[1,1].set_xticks([1])
-                axes[1,1].set_xticklabels(['All Unique Rules'])
+                axes[1,1].set_xticklabels(['All Rules'])
                 axes[1,1].grid(True, alpha=0.3)
             except:
                 # Fallback if violin plot fails
@@ -814,7 +576,7 @@ Unique Rules: {len(times)}"""
                 axes[1,1].set_title('Performance Distribution (Fallback)')
                 axes[1,1].grid(True, alpha=0.3)
             
-            plt.suptitle('Unique Rules Performance Distribution Analysis', fontsize=16, y=0.98)
+            plt.suptitle('Detailed Performance Distribution Analysis', fontsize=16, y=0.98)
             plt.tight_layout()
             plt.savefig(os.path.join(self.output_dir, f"{filename}_distribution.png"), dpi=300, bbox_inches='tight')
             plt.close()
@@ -845,26 +607,24 @@ Unique Rules: {len(times)}"""
         return normalized
     
     def generate_dashboard(self, performance_data: Dict, filename: str):
-        """Generate a comprehensive dashboard with all visualizations - DEDUPLICATED"""
-        print(f"{Colors.CYAN}Generating comprehensive visualization dashboard (unique rules only)...{Colors.END}")
+        """Generate a comprehensive dashboard with all visualizations"""
+        print(f"{Colors.CYAN}Generating comprehensive visualization dashboard...{Colors.END}")
         
-        # Create all visualizations with deduplication
+        # Create all visualizations
         if 'rule_performance' in performance_data:
             rule_performance = performance_data['rule_performance']
             
             self.create_performance_radar(rule_performance, filename)
             self.create_performance_heatmap(rule_performance, filename)
             self.create_statistical_summary(rule_performance, filename)
-            self.create_performance_distribution(rule_performance, filename)
+            self.create_performance_distribution(rule_performance, filename)  # Add dedicated distribution plot
         
-        print(f"{Colors.GREEN}Dashboard generation complete! (Duplicate rules removed){Colors.END}")
+        print(f"{Colors.GREEN}Dashboard generation complete!{Colors.END}")
 
 class RulePerformanceTester:
-    def __init__(self, platform_index=0, device_index=0, use_mmap=True):
+    def __init__(self, platform_index=0, device_index=0):
         """Initialize OpenCL context and compile kernel"""
         self.visualizer = None
-        self.rule_reader = MemoryMappedRuleReader()
-        self.use_mmap = use_mmap
         self.setup_opencl(platform_index, device_index)
         
     def setup_opencl(self, platform_index: int, device_index: int):
@@ -916,32 +676,32 @@ class RulePerformanceTester:
         self.visualizer = VisualizationEngine(output_dir)
         print(f"{Colors.GREEN}Visualization engine initialized{Colors.END}")
     
-    def setup_test_data(self, use_identical_sets: bool = True):
-        """Set up test parameters with 50 built-in words"""
-        # Enhanced built-in test words (50 words)
-        self.test_words = [
-            b"password", b"123456", b"qwerty", b"letmein", b"welcome",
-            b"monkey", b"dragon", b"master", b"hello", b"freedom",
-            b"whatever", b"computer", b"internet", b"sunshine", b"princess",
-            b"charlie", b"shadow", b"baseball", b"donald", b"harley",
-            b"hockey", b"thunder", b"mustang", b"merlin", b"cookie",
-            b"ginger", b"silver", b"batman", b"superman", b"starwars",
-            b"matrix", b"butter", b"pepper", b"jasmine", b"orange",
-            b"banana", b"purple", b"diamond", b"crystal", b"midnight",
-            b"heaven", b"secret", b"summer", b"winter", b"spring",
-            b"autumn", b"elephant", b"tiger", b"lion", b"panther"
+    def setup_test_data(self, max_words: int = 1000):
+        """Set up test parameters and use built-in test words"""
+        # Built-in test words
+        builtin_words = [
+            b"password", b"123456", b"qwerty", b"letmein", 
+            b"welcome", b"monkey", b"dragon", b"master",
+            b"hello", b"freedom", b"whatever", b"computer",
+            b"internet", b"sunshine", b"princess", b"charlie"
         ]
+        
+        # If max_words is less than builtin count, truncate
+        if max_words < len(builtin_words):
+            self.test_words = builtin_words[:max_words]
+        else:
+            self.test_words = builtin_words
+            print(f"{Colors.YELLOW}Built-in word list has only {len(builtin_words)} words, using all.{Colors.END}")
+        
+        print(f"{Colors.GREEN}Using built-in test words ({len(self.test_words)} words){Colors.END}")
         
         # Configuration parameters
         self.max_word_len = 64
         self.max_rule_len = 32
         self.max_result_len = 128
         
-        print(f"{Colors.GREEN}Using {len(self.test_words)} built-in test words{Colors.END}")
         print(f"{Colors.CYAN}Max word length: {self.max_word_len}{Colors.END}")
         print(f"{Colors.CYAN}Max rule length: {self.max_rule_len}{Colors.END}")
-        print(f"{Colors.CYAN}File I/O method: {'MEMORY-MAPPED' if self.use_mmap else 'TRADITIONAL'}{Colors.END}")
-        print(f"{Colors.CYAN}Identical word sets: {use_identical_sets}{Colors.END}")
     
     def calculate_performance_metrics(self, execution_times: List[float]) -> Dict[str, Any]:
         """Calculate robust performance metrics with outlier removal"""
@@ -1074,24 +834,14 @@ class RulePerformanceTester:
                 'error': str(e)
             }
     
-    def read_rules_from_file(self, file_path: str, max_rules: int = None) -> List[bytes]:
-        """Read rules using memory-mapped files for performance"""
-        if self.use_mmap:
-            return self.rule_reader.read_rules_mmap(file_path, max_rules)
-        else:
-            return self.rule_reader.read_rules_traditional(file_path, max_rules)
-    
     def test_rule_file_performance(self, rule_file_path: str, test_runs: int = 3, max_test_rules: int = 1000) -> List[Tuple[str, Dict[str, Any]]]:
         """Test all rules in a rule file and return sorted by performance"""
         print(f"\n{Colors.BOLD}{Colors.CYAN}{'='*60}{Colors.END}")
         print(f"{Colors.BOLD}{Colors.CYAN}Testing rule file: {rule_file_path}{Colors.END}")
         print(f"{Colors.BOLD}{Colors.CYAN}{'='*60}{Colors.END}")
         
-        # Read rules from file with performance measurement
-        read_start = time.time()
-        rules = self.read_rules_from_file(rule_file_path, max_test_rules)
-        read_time = time.time() - read_start
-        
+        # Read rules from file
+        rules = self.read_rules_from_file(rule_file_path)
         if not rules:
             print(f"{Colors.RED}No rules found in {rule_file_path}{Colors.END}")
             return []
@@ -1101,14 +851,10 @@ class RulePerformanceTester:
             print(f"{Colors.YELLOW}Limiting to first {max_test_rules} rules (out of {len(rules)}){Colors.END}")
             rules = rules[:max_test_rules]
         
-        print(f"{Colors.GREEN}File read time: {read_time:.4f}s ({len(rules)} rules){Colors.END}")
-        
         # Test each rule
         rule_performance = []
         total_rules = len(rules)
         successful_tests = 0
-        
-        test_start_time = time.time()
         
         for i, rule in enumerate(rules):
             rule_str = rule.decode('ascii', errors='ignore')
@@ -1131,15 +877,11 @@ class RulePerformanceTester:
             else:
                 print(f"    {Colors.RED}FAILED: {performance_data.get('error', 'Unknown error')}{Colors.END}")
         
-        total_test_time = time.time() - test_start_time
-        
         # Sort by execution time (fastest first)
         rule_performance.sort(key=lambda x: x[1]['execution_time'])
         
         success_color = Colors.GREEN if successful_tests == total_rules else Colors.YELLOW if successful_tests > total_rules * 0.8 else Colors.RED
         print(f"\n{success_color}Completed: {successful_tests}/{total_rules} rules successful{Colors.END}")
-        print(f"{Colors.CYAN}Total testing time: {total_test_time:.2f}s{Colors.END}")
-        print(f"{Colors.CYAN}Rules per second: {total_rules/total_test_time:.1f}{Colors.END}")
         
         # Generate visualizations if visualizer is available
         if self.visualizer and rule_performance:
@@ -1147,12 +889,31 @@ class RulePerformanceTester:
             self.visualizer.generate_dashboard({
                 'rule_performance': rule_performance,
                 'test_runs': test_runs,
-                'file_read_time': read_time,
-                'total_test_time': total_test_time,
                 'timestamp': datetime.now().isoformat()
             }, base_name)
         
         return rule_performance
+    
+    def read_rules_from_file(self, file_path: str) -> List[bytes]:
+        """Read rules from hashcat rule file"""
+        rules = []
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line_num, line in enumerate(f, 1):
+                    line = line.strip()
+                    # Skip empty lines and comments
+                    if not line or line.startswith('#'):
+                        continue
+                    # Remove inline comments
+                    if '#' in line:
+                        line = line.split('#')[0].strip()
+                    if line:  # Only add non-empty lines
+                        rules.append(line.encode('ascii', errors='ignore'))
+            print(f"{Colors.GREEN}Read {len(rules)} rules from {file_path}{Colors.END}")
+        except Exception as e:
+            print(f"{Colors.RED}Error reading rule file {file_path}: {e}{Colors.END}")
+        
+        return rules
     
     def save_sorted_rules(self, rule_performance: List[Tuple[str, Dict[str, Any]]], output_file: str):
         """Save rules sorted by performance to file"""
@@ -1182,8 +943,7 @@ class RulePerformanceTester:
                     "test_iterations": self.iterations,
                     "test_words_count": len(self.test_words),
                     "max_word_len": self.max_word_len,
-                    "max_rule_len": self.max_rule_len,
-                    "file_io_method": "memory-mapped" if self.use_mmap else "traditional"
+                    "max_rule_len": self.max_rule_len
                 },
                 "rules": [
                     {
@@ -1212,9 +972,8 @@ class RuleSetOptimizer:
         self.max_total_time = max_total_time
     
     def create_optimized_set(self, performance_reports: List[str], output_file: str):
-        """Create optimized rule set from multiple performance reports - DEDUPLICATED"""
+        """Create optimized rule set from multiple performance reports"""
         all_rules = []
-        seen_rules = set()  # Track unique rules to avoid duplicates
         
         # Load performance data from all reports
         for report_file in performance_reports:
@@ -1222,12 +981,7 @@ class RuleSetOptimizer:
                 try:
                     with open(report_file, 'r') as f:
                         data = json.load(f)
-                        for rule_data in data['rules']:
-                            rule_text = rule_data['rule']
-                            # Only add if we haven't seen this rule before
-                            if rule_text not in seen_rules:
-                                all_rules.append(rule_data)
-                                seen_rules.add(rule_text)
+                        all_rules.extend(data['rules'])
                     print(f"{Colors.GREEN}Loaded performance data from {report_file}{Colors.END}")
                 except Exception as e:
                     print(f"{Colors.RED}Error loading performance report {report_file}: {e}{Colors.END}")
@@ -1235,8 +989,6 @@ class RuleSetOptimizer:
         if not all_rules:
             print(f"{Colors.RED}No performance data found!{Colors.END}")
             return
-        
-        print(f"{Colors.CYAN}Found {len(all_rules)} unique rules after deduplication{Colors.END}")
         
         # Sort by execution time (fastest first)
         all_rules.sort(key=lambda x: x['execution_time_seconds'])
@@ -1253,8 +1005,8 @@ class RuleSetOptimizer:
         
         # Save optimized rule set
         with open(output_file, 'w') as f:
-            f.write("# Optimized rule set - fastest unique rules\n")
-            f.write(f"# Total unique rules: {len(selected_rules)}\n")
+            f.write("# Optimized rule set - fastest rules\n")
+            f.write(f"# Total rules: {len(selected_rules)}\n")
             f.write(f"# Estimated total time: {total_time:.6f}s\n")
             f.write(f"# Max rules constraint: {self.max_rules}\n")
             f.write(f"# Max time constraint: {self.max_total_time}s\n")
@@ -1270,8 +1022,7 @@ class RuleSetOptimizer:
                 "max_rules": self.max_rules,
                 "max_total_time": self.max_total_time,
                 "actual_rules_selected": len(selected_rules),
-                "actual_total_time": total_time,
-                "unique_rules_processed": len(all_rules)
+                "actual_total_time": total_time
             },
             "selected_rules": selected_rules
         }
@@ -1280,7 +1031,7 @@ class RuleSetOptimizer:
             json.dump(optimization_report, f, indent=2)
         
         print(f"\n{Colors.GREEN}Optimized rule set created: {output_file}{Colors.END}")
-        print(f"{Colors.CYAN}Selected {len(selected_rules)} unique rules with total time {total_time:.6f}s{Colors.END}")
+        print(f"{Colors.CYAN}Selected {len(selected_rules)} rules with total time {total_time:.6f}s{Colors.END}")
         print(f"{Colors.CYAN}Optimization report: {report_file}{Colors.END}")
 
 def find_rule_files(rule_paths: List[str]) -> List[str]:
@@ -1317,14 +1068,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f'''
 {Colors.BOLD}Examples:{Colors.END}
-  {Colors.CYAN}# Basic testing with memory-mapped files{Colors.END}
-  python3 rule_benchmark.py -r best64.rule --visualize --mmap
+  {Colors.CYAN}# Basic testing with visualizations{Colors.END}
+  python3 rule_benchmark.py -r best64.rule --visualize
   
-  {Colors.CYAN}# Traditional file reading (fallback){Colors.END}
-  python3 rule_benchmark.py -r best64.rule --no-mmap
-  
-  {Colors.CYAN}# Large rule file testing{Colors.END}
-  python3 rule_benchmark.py -r huge.rule --max-test-rules 5000 --mmap
+  {Colors.CYAN}# Limit number of rules for quick testing{Colors.END}
+  python3 rule_benchmark.py -r best64.rule --max-test-rules 100
   
   {Colors.CYAN}# Full testing with optimization{Colors.END}
   python3 rule_benchmark.py -r best64.rule --visualize --optimize --max-optimize-rules 500
@@ -1340,14 +1088,10 @@ def main():
                        help='Number of test iterations per rule (default: 50)')
     parser.add_argument('--test-runs', type=int, default=3,
                        help='Number of test runs per rule for statistical accuracy (default: 3)')
+    parser.add_argument('--max-words', type=int, default=1000,
+                       help='Maximum number of test words to use (default: 1000, built-in words are limited)')
     parser.add_argument('--max-test-rules', type=int, default=1000,
                        help='Maximum number of rules to test (default: 1000)')
-    
-    # File I/O arguments
-    parser.add_argument('--mmap', action='store_true', default=True,
-                       help='Use memory-mapped file I/O for better performance (default: True)')
-    parser.add_argument('--no-mmap', action='store_false', dest='mmap',
-                       help='Disable memory-mapped file I/O (use traditional reading)')
     
     # Optimization arguments
     parser.add_argument('--optimize', action='store_true',
@@ -1356,8 +1100,6 @@ def main():
                        help='Maximum rules for optimized set (default: 500)')
     parser.add_argument('--max-time', type=float, default=30.0,
                        help='Maximum total time for optimized set (default: 30.0)')
-    parser.add_argument('--identical-dicts', action='store_true',
-                       help='Use identical dictionary sets for consistency testing')
     
     # Visualization arguments
     parser.add_argument('--visualize', action='store_true',
@@ -1393,13 +1135,9 @@ def main():
     for rf in rule_files:
         print(f"  {Colors.CYAN}{rf}{Colors.END}")
     
-    # Confirm configuration before proceeding
-    if not confirm_configuration(args):
-        return
-    
     # Create tester instance with proper device selection
     try:
-        tester = RulePerformanceTester(platform_index=args.platform, device_index=args.device, use_mmap=args.mmap)
+        tester = RulePerformanceTester(platform_index=args.platform, device_index=args.device)
         # Set iterations from command line argument
         tester.iterations = args.iterations
         
@@ -1408,21 +1146,16 @@ def main():
             tester.setup_visualization(viz_output)
             print(f"{Colors.CYAN}Advanced visualization engine activated{Colors.END}")
         
-        # Setup test data with 50 built-in words
-        tester.setup_test_data(use_identical_sets=args.identical_dicts)
+        # Setup test data with built-in words
+        tester.setup_test_data(max_words=args.max_words)
         
-        # Print final configuration summary
-        print(f"\n{Colors.BOLD}{Colors.CYAN}FINAL CONFIGURATION:{Colors.END}")
+        # Print configuration summary
+        print(f"\n{Colors.BOLD}{Colors.CYAN}Configuration Summary:{Colors.END}")
         print(f"  {Colors.WHITE}Test iterations:{Colors.END} {Colors.YELLOW}{tester.iterations}{Colors.END}")
         print(f"  {Colors.WHITE}Test runs per rule:{Colors.END} {Colors.YELLOW}{args.test_runs}{Colors.END}")
         print(f"  {Colors.WHITE}Max test rules:{Colors.END} {Colors.YELLOW}{args.max_test_rules}{Colors.END}")
-        print(f"  {Colors.WHITE}Test words:{Colors.END} {Colors.YELLOW}{len(tester.test_words)} built-in words{Colors.END}")
-        print(f"  {Colors.WHITE}File I/O method:{Colors.END} {Colors.GREEN if args.mmap else Colors.YELLOW}{'MEMORY-MAPPED' if args.mmap else 'TRADITIONAL'}{Colors.END}")
-        print(f"  {Colors.WHITE}Identical dictionaries:{Colors.END} {Colors.YELLOW}{args.identical_dicts}{Colors.END}")
-        print(f"  {Colors.WHITE}Optimization:{Colors.END} {Colors.YELLOW}{'ENABLED' if args.optimize else 'DISABLED'}{Colors.END}")
-        if args.optimize:
-            print(f"  {Colors.WHITE}Max optimize rules:{Colors.END} {Colors.YELLOW}{args.max_optimize_rules}{Colors.END}")
-            print(f"  {Colors.WHITE}Max time constraint:{Colors.END} {Colors.YELLOW}{args.max_time}s{Colors.END}")
+        print(f"  {Colors.WHITE}Max words:{Colors.END} {Colors.YELLOW}{args.max_words}{Colors.END}")
+        print(f"  {Colors.WHITE}Test words loaded:{Colors.END} {Colors.YELLOW}{len(tester.test_words)}{Colors.END}")
         
     except Exception as e:
         print(f"{Colors.RED}Failed to initialize tester: {e}{Colors.END}")
@@ -1478,7 +1211,6 @@ def main():
     print(f"{Colors.BOLD}{Colors.CYAN}All results saved to: {os.path.abspath(args.output)}{Colors.END}")
     if args.visualize:
         print(f"{Colors.BOLD}{Colors.MAGENTA}Visualizations saved to: {os.path.abspath(viz_output)}{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.GREEN}File I/O method used: {'MEMORY-MAPPED' if args.mmap else 'TRADITIONAL'}{Colors.END}")
     print(f"{Colors.BOLD}{Colors.GREEN}{'='*60}{Colors.END}")
 
 if __name__ == "__main__":
