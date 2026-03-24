@@ -48,7 +48,6 @@ python aether.py \
 | Argument            | Description |
 |--------------------|------------|
 | -r, --rules         | Rule files or directories containing `.rule` files |
-| -d, --dict          | Dictionary files or directories for test words |
 
 ---
 
