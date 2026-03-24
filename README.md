@@ -34,7 +34,6 @@ pip install numpy pyopencl tqdm matplotlib
 ```bash
 python aether.py \
   -r rules/ \
-  -d wordlists/ \
   -o results \
   --iterations 50 \
   --test-runs 3
@@ -137,13 +136,13 @@ python aether.py \
 ### Basic Benchmark
 
 ```bash
-python aether.py -r best64.rule -d rockyou.txt
+python aether.py -r best64.rule
 ```
 
 ### Limited Rule Testing
 
 ```bash
-python aether.py -r rules/ -d wordlists/ --max-test-rules 100
+python aether.py -r rules/ --max-test-rules 100
 ```
 
 ### Full Benchmark with Optimization and Visualization
@@ -151,7 +150,6 @@ python aether.py -r rules/ -d wordlists/ --max-test-rules 100
 ```bash
 python aether.py \
   -r rules/ \
-  -d wordlists/ \
   --visualize \
   --optimize \
   --max-optimize-rules 500
