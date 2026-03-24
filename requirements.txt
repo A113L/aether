@@ -2,3 +2,6 @@ numpy
 pyopencl
 tqdm
 matplotlib
+pandas
+seaborn
+scipy
