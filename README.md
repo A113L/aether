@@ -1,173 +1,187 @@
-**Aether - Hashcat Rule Performance Benchmark**
+# Aether - Hashcat Rule Performance Benchmark Tool
 
-*"Just as the Michelson-Morley experiment of 1887 sought to measure the fundamental constants of the universe, this tool measures the fundamental performance characteristics of hashcat rules with scientific precision."*
+Aether is an advanced benchmarking and analysis tool for evaluating the performance of Hashcat rule files. It measures execution speed, efficiency, and effectiveness of rules across in-build dictionariy, and can generate optimized rule sets and detailed visualizations.
 
-```
-# **Hashcat Rule Performance Benchmark**
-
-A scientific-grade performance analysis tool for Hashcat rules with advanced visualizations and OpenCL GPU acceleration.
+---
 
 ## Features
 
-- GPU Accelerated: OpenCL-powered rule performance testing
-- Advanced Visualizations: Radar charts, heatmaps, statistical summaries
-- Scientific Methodology: Michelson-Morley inspired precision testing
-- Rule Optimization Automatic generation of optimized rule sets
-- Performance Metrics: Execution time, operations/sec, coefficient of variation
+- Benchmark Hashcat rule performance across in-build dictionary
+- Support for testing multiple rules
+- Configurable iterations and test runs
+- Rule set optimization based on performance constraints
+- Advanced visualization generation
+- GPU/OpenCL device selection
+- Flexible dataset handling with optional consistency testing
+- Structured output and reporting
 
-## Quick Start
+---
 
-### Basic Testing
+## Requirements
 
-python3 aether.py -r best64.rule --visualize
+- Python 3.8 or higher
+- OpenCL-compatible device (optional but recommended)
+- Required Python packages:
 
-Full Optimization Pipeline
+```bash
+pip install numpy pyopencl tqdm matplotlib
+```
 
-python3 aether.py -r test.rule \
-  --iterations 200 \
-  --test-runs 20 \
-  --max-test-rules 10000 \
-  --optimize \
-  --max-optimize-rules 1000 \
+---
+
+## Usage
+
+```bash
+python aether.py \
+  -r rules/ \
+  -d wordlists/ \
+  -o results \
+  --iterations 50 \
+  --test-runs 3
+```
+
+---
+
+## Arguments
+
+### Required Arguments
+
+| Argument            | Description |
+|--------------------|------------|
+| -r, --rules         | Rule files or directories containing `.rule` files |
+| -d, --dict          | Dictionary files or directories for test words |
+
+---
+
+### Core Arguments
+
+| Argument            | Description |
+|--------------------|------------|
+| -o, --output        | Output directory for results (default: ./benchmark_results) |
+| -i, --iterations    | Number of test iterations per rule (default: 50) |
+| --test-runs         | Number of test runs per rule (default: 3) |
+| --max-words         | Maximum number of words to load from dictionaries (default: 1000) |
+| --max-test-rules    | Maximum number of rules to benchmark (default: 1000) |
+
+---
+
+### Optimization Arguments
+
+| Argument                | Description |
+|------------------------|------------|
+| --optimize             | Enable optimized rule set generation |
+| --max-optimize-rules   | Maximum rules in optimized set (default: 500) |
+| --max-time             | Maximum total execution time for optimized set (default: 30.0 seconds) |
+| --identical-dicts      | Use identical dictionary sets for consistency testing |
+
+---
+
+### Visualization Arguments
+
+| Argument                    | Description |
+|----------------------------|------------|
+| --visualize                | Enable visualization generation |
+| --dpi                      | DPI for output images (default: 300) |
+| --visualization-output     | Separate directory for visualization output |
+
+---
+
+### Device Selection Arguments
+
+| Argument        | Description |
+|----------------|------------|
+| --platform     | OpenCL platform index (default: 0) |
+| --device       | OpenCL device index (default: 0) |
+
+---
+
+## How It Works
+
+### Rule Discovery
+
+- Loads rule files from provided paths
+- Validates and prepares rules for testing
+
+### Benchmark Execution
+
+- Applies rules against dictionary words
+- Measures execution time across multiple iterations
+- Aggregates performance metrics
+
+### Optimization (Optional)
+
+- Selects best-performing rules based on:
+  - Execution speed
+  - Time constraints
+- Outputs optimized rule sets and reports
+
+### Visualization (Optional)
+
+- Generates charts and visual summaries
+- Helps identify high-performance rules
+- Outputs images for analysis and reporting
+
+---
+
+## Output
+
+- Benchmark results stored in output directory
+- Optional optimized rule set
+- JSON optimization report
+- Visualization images (if enabled)
+
+---
+
+## Example Workflows
+
+### Basic Benchmark
+
+```bash
+python aether.py -r best64.rule -d rockyou.txt
+```
+
+### Limited Rule Testing
+
+```bash
+python aether.py -r rules/ -d wordlists/ --max-test-rules 100
+```
+
+### Full Benchmark with Optimization and Visualization
+
+```bash
+python aether.py \
+  -r rules/ \
+  -d wordlists/ \
   --visualize \
-  --dpi 600 \
-  --identical-dicts
+  --optimize \
+  --max-optimize-rules 500
 ```
 
-**Installation**
+---
 
-Install Dependencies:
+## Limitations
 
-```
-pip install pyopencl numpy matplotlib seaborn pandas scipy
+- Performance depends on hardware and dataset size
+- Large rule sets may increase runtime significantly
+- Visualization requires additional processing time
 
-Verify OpenCL Support:
+---
 
-python3 -c "import pyopencl as cl; print([d.name for d in cl.get_platforms()[0].get_devices()])"
-```
+## Future Improvements
 
-**Usage Examples**
+- Multi-GPU benchmarking support
+- Distributed benchmarking
+- More advanced optimization heuristics
+- Interactive visualization dashboards
 
-*Performance Testing Only*
+---
 
-```
-python3 aether.py -r rules/ best64.rule --test-runs 5 --iterations 100
-```
+## License
 
-*With Optimization*
+MIT License
 
-```
-python3 aether.py -r rules/ --optimize --max-optimize-rules 500 --max-time 30.0
-```
+---
 
-*High-Resolution Visualizations*
+## Credits
 
-```
-python3 aether.py -r rules/ --visualize --dpi 600 --output ./results/
-```
-
-**Command Line Options**
-
-*Core Options*
-
-```
--r, --rules: Rule files or directories (required)
-
--o, --output: Output directory (default: ./benchmark_results)
-
--i, --iterations: Test iterations per rule (default: 50)
-
---test-runs: Test runs per rule for statistical accuracy (default: 3)
-
---max-test-rules: Maximum rules to test (default: 1000)
-```
-
-*Optimization*
-
-```
---optimize: Create optimized rule set
-
---max-optimize-rules: Maximum rules for optimized set (default: 500)
-
---max-time: Maximum total time constraint (default: 30.0s)
-```
-
-*Visualization*
-
-```
---visualize: Generate comprehensive visualizations
-
---dpi: Output image DPI (default: 300)
-
---visualization-output: Separate directory for visualizations
-```
-
-*Advanced*
-
-```
---identical-dicts: Use identical word sets for consistency
-
---platform: OpenCL platform index (default: 0)
-
---device: OpenCL device index (default: 0)
-```
-
-**Output Files**
-
-*_sorted.rule: Rules sorted by performance (fastest first)
-
-*_performance_report.json: Detailed performance metrics
-
-*_radar.png: Performance radar charts
-
-*_heatmap.png: Rule type performance heatmaps
-
-*_statistical.png: Comprehensive statistical summaries
-
-*_distribution.png: Performance distribution analysis
-
-optimized_rules.rule: Generated optimized rule set
-
-*_optimization_report.json: Optimization parameters and results
-
-**Performance Metrics**
-
-- Execution Time: Average time per rule operation
-
-- Operations/Second: Throughput measurement
-
-- Coefficient of Variation: Statistical consistency (lower is better)
-
-- Performance Rank: Relative performance ranking
-
-- Statistical Outliers: Automated outlier detection and removal
-
-**Built-in Test Words**
-
-The tool uses 50 carefully selected built-in test words, eliminating the need for external dictionary files while maintaining testing consistency.
-
-**Visualization Examples**
-
-[![concentrator-MT-25000-radar.png](https://i.postimg.cc/Gm8Yzmsf/concentrator-MT-25000-radar.png)](https://postimg.cc/K1bR8Ff7)
-
-*Performance radar chart showing top 20 rules*
-
-[![concentrator-MT-25000-heatmap.png](https://i.postimg.cc/1X3VFmQ4/concentrator-MT-25000-heatmap.png)](https://postimg.cc/mzKrfGhG)
-
-*Rule type performance heatmap*
-
-**Requirements**
-
-- Python 3.6+
-
-- OpenCL compatible GPU or CPU
-
-- 4GB+ RAM recommended for large rule sets
-
-**License**
-
-MIT License - See LICENSE file for details.
-
-**Website:**
-
-https://hcrt.pages.dev/aether.static_workflow
+Developed for advanced Hashcat rule analysis, benchmarking, and optimization workflows.
