@@ -152,6 +152,7 @@ python aether.py \
   --visualize \
   --optimize \
   --max-optimize-rules 500
+  --identical-dicts
 ```
 
 ---
