@@ -1008,17 +1008,30 @@ class RulePerformanceTester:
         self.visualizer = VisualizationEngine(output_dir)
         print(f"{Colors.GREEN}Visualization engine initialized{Colors.END}")
     
-    def setup_test_data(self, max_words: int = 1000):
+    def setup_test_data(self, max_words: int = 1000, identical_dicts: bool = False):
         builtin_words = [
             b"password", b"123456", b"qwerty", b"letmein", b"welcome", b"monkey", b"dragon", b"master",
             b"hello", b"freedom", b"whatever", b"computer", b"internet", b"sunshine", b"princess", b"charlie"
         ]
-        if max_words < len(builtin_words):
-            self.test_words = builtin_words[:max_words]
+        if identical_dicts:
+            # Tile the full builtin list repeatedly until we reach max_words.
+            # Every cycle is an exact copy of the same 16 words, so the input
+            # space is perfectly uniform across iterations — precision/reject
+            # rules (!, /, (, ), <, >, _, =, %) see identical inputs every time,
+            # eliminating word-variance noise from the measurements.
+            count = max(1, max_words)
+            self.test_words = (builtin_words * (count // len(builtin_words) + 1))[:count]
+            print(f"{Colors.BOLD}{Colors.MAGENTA}[identical-dicts mode]{Colors.END} "
+                  f"{Colors.GREEN}Dictionary: {count} words "
+                  f"({len(builtin_words)} built-in words tiled × "
+                  f"{count // len(builtin_words) + 1}){Colors.END}")
         else:
-            self.test_words = builtin_words
-            print(f"{Colors.YELLOW}Built-in word list has only {len(builtin_words)} words, using all.{Colors.END}")
-        print(f"{Colors.GREEN}Using built-in test words ({len(self.test_words)} words){Colors.END}")
+            if max_words < len(builtin_words):
+                self.test_words = builtin_words[:max_words]
+            else:
+                self.test_words = builtin_words
+                print(f"{Colors.YELLOW}Built-in word list has only {len(builtin_words)} words, using all.{Colors.END}")
+            print(f"{Colors.GREEN}Using built-in test words ({len(self.test_words)} words){Colors.END}")
         self.max_word_len = 64
         self.max_rule_len = 32
         self.max_result_len = 512
@@ -1176,7 +1189,8 @@ class RulePerformanceTester:
         except Exception as e:
             print(f"{Colors.RED}Error saving sorted rules: {e}{Colors.END}")
     
-    def save_performance_report(self, rule_performance: List[Tuple[str, Dict[str, Any]]], report_file: str):
+    def save_performance_report(self, rule_performance: List[Tuple[str, Dict[str, Any]]], report_file: str,
+                                identical_dicts: bool = False):
         try:
             report_data = {
                 "metadata": {
@@ -1185,7 +1199,8 @@ class RulePerformanceTester:
                     "test_iterations": self.iterations,
                     "test_words_count": len(self.test_words),
                     "max_word_len": self.max_word_len,
-                    "max_rule_len": self.max_rule_len
+                    "max_rule_len": self.max_rule_len,
+                    "identical_dicts_mode": identical_dicts
                 },
                 "rules": [
                     {
@@ -1290,6 +1305,12 @@ def main():
   
   {Colors.CYAN}# Full testing with optimization{Colors.END}
   python3 rule_benchmark.py -r best64.rule --visualize --optimize --max-optimize-rules 500
+
+  {Colors.CYAN}# Precision mode: test reject/filter rules with tiled built-in words{Colors.END}
+  python3 rule_benchmark.py -r best64.rule --identical-dicts
+
+  {Colors.CYAN}# Precision mode + increased word count for more GPU work per measurement{Colors.END}
+  python3 rule_benchmark.py -r best64.rule --identical-dicts --max-words 5000 --iterations 100
         '''
     )
     parser.add_argument('--rules', '-r', nargs='+', required=True, help='Rule files or directories containing .rule files')
@@ -1306,6 +1327,18 @@ def main():
     parser.add_argument('--visualization-output', default=None, help='Separate output directory for visualizations')
     parser.add_argument('--platform', type=int, default=0, help='OpenCL platform index')
     parser.add_argument('--device', type=int, default=0, help='OpenCL device index')
+    # ── Identical-dicts precision mode ──────────────────────────────────────
+    parser.add_argument(
+        '--identical-dicts',
+        action='store_true',
+        help=(
+            'Tile the built-in word list repeatedly to fill --max-words entries. '
+            'Every cycle is the same 16 words in the same order, so the input '
+            'space is perfectly uniform across iterations — precision / reject '
+            'rules (!, /, (, ), <, >, _, =, %%) see identical inputs every time, '
+            'eliminating word-variance noise from the measurements.'
+        )
+    )
     args = parser.parse_args()
     
     os.makedirs(args.output, exist_ok=True)
@@ -1324,13 +1357,19 @@ def main():
         tester = RulePerformanceTester(platform_index=args.platform, device_index=args.device)
         tester.iterations = args.iterations
         if args.visualize: tester.setup_visualization(viz_output)
-        tester.setup_test_data(max_words=args.max_words)
+        tester.setup_test_data(
+            max_words=args.max_words,
+            identical_dicts=args.identical_dicts
+        )
         print(f"\n{Colors.BOLD}{Colors.CYAN}Configuration Summary:{Colors.END}")
         print(f"  {Colors.WHITE}Test iterations:{Colors.END} {Colors.YELLOW}{tester.iterations}{Colors.END}")
         print(f"  {Colors.WHITE}Test runs per rule:{Colors.END} {Colors.YELLOW}{args.test_runs}{Colors.END}")
         print(f"  {Colors.WHITE}Max test rules:{Colors.END} {Colors.YELLOW}{args.max_test_rules}{Colors.END}")
         print(f"  {Colors.WHITE}Max words:{Colors.END} {Colors.YELLOW}{args.max_words}{Colors.END}")
         print(f"  {Colors.WHITE}Test words loaded:{Colors.END} {Colors.YELLOW}{len(tester.test_words)}{Colors.END}")
+        if args.identical_dicts:
+            print(f"  {Colors.WHITE}Identical-dicts mode:{Colors.END} {Colors.MAGENTA}ENABLED{Colors.END} "
+                  f"— {len(tester.test_words)} words (built-ins tiled)")
     except Exception as e:
         print(f"{Colors.RED}Failed to initialize tester: {e}{Colors.END}")
         return
@@ -1343,7 +1382,8 @@ def main():
             sorted_rules_file = os.path.join(args.output, f"{base_name}_sorted.rule")
             report_file = os.path.join(args.output, f"{base_name}_performance_report.json")
             tester.save_sorted_rules(rule_performance, sorted_rules_file)
-            tester.save_performance_report(rule_performance, report_file)
+            tester.save_performance_report(rule_performance, report_file,
+                                           identical_dicts=args.identical_dicts)
             performance_reports.append(report_file)
             print(f"\n{Colors.BOLD}{Colors.CYAN}Performance Summary for {rule_file}:{Colors.END}")
             fastest_time = rule_performance[0][1]['execution_time']
@@ -1373,4 +1413,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
