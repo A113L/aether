@@ -16,6 +16,7 @@ It supports the **complete Hashcat rule grammar**: simple 1-character rules, 2-c
 
 - 🔬 **Full Hashcat Rule Engine** — implements all rule transformations (`l`, `u`, `c`, `r`, `d`, `s`, `T`, `D`, `x`, `i`, `o`, `*`, `^`, `$`, `@`, `!`, `/`, reject rules, and more) in an OpenCL kernel
 - ⚡ **GPU Acceleration** — processes words × rules in parallel via PyOpenCL
+- 🎯 **Identical-Dicts Precision Mode** — tiles the built-in word list to eliminate word-variance noise when benchmarking reject and filter rules
 - 📊 **Advanced Visualizations**
   - Radar charts (speed, throughput, consistency)
   - Performance heatmaps per rule-type character
@@ -90,13 +91,25 @@ python3 aether.py -r best64.rule --max-test-rules 100
 ### Full Benchmark + Optimize
 
 ```bash
-python3 aether.py -r rules/ --identical-dicts --visualize --optimize --max-optimize-rules 500
+python3 aether.py -r rules/ --visualize --optimize --max-optimize-rules 500
 ```
 
 ### Multiple Rule Files
 
 ```bash
 python3 aether.py -r best64.rule rockyou-30000.rule d3ad0ne.rule --visualize
+```
+
+### Precision Mode for Reject / Filter Rules
+
+```bash
+python3 aether.py -r best64.rule --identical-dicts
+```
+
+### Precision Mode with Increased Word Count
+
+```bash
+python3 aether.py -r best64.rule --identical-dicts --max-words 5000 --iterations 100
 ```
 
 ---
@@ -119,6 +132,31 @@ python3 aether.py -r best64.rule rockyou-30000.rule d3ad0ne.rule --visualize
 | `--visualization-output` | | `<output>/visualizations` | Separate directory for chart images |
 | `--platform` | | `0` | OpenCL platform index |
 | `--device` | | `0` | OpenCL device index |
+| `--identical-dicts` | | `false` | Enable identical-dicts precision mode (see below) |
+
+---
+
+## Identical-Dicts Precision Mode
+
+By default, Aether benchmarks rules against a small diverse set of 16 built-in passwords (`password`, `123456`, `qwerty`, etc.). This works well for most transformation rules, but **reject and filter rules** (`!`, `/`, `(`, `)`, `<`, `>`, `_`, `=`, `%`) are sensitive to word-to-word variation — whether a rule accepts or rejects a given word depends on its length and character content, introducing measurement noise across iterations.
+
+Pass `--identical-dicts` to eliminate this noise. In this mode, the built-in 16-word list is **tiled repeatedly** to fill the `--max-words` slot count. Every cycle is the same words in the same order, so every GPU iteration sees an identical input distribution. Accept/reject decisions become fully deterministic, and the measured time reflects the pure rule overhead rather than input variance.
+
+```bash
+# Standard precision test for reject rules
+python3 aether.py -r best64.rule --identical-dicts
+
+# Higher word count = more GPU work per timing sample = lower relative noise
+python3 aether.py -r best64.rule --identical-dicts --max-words 5000 --iterations 100
+```
+
+When this mode is active, the Configuration Summary prints:
+
+```
+  Identical-dicts mode: ENABLED — 1000 words (built-ins tiled)
+```
+
+The JSON performance report also records `"identical_dicts_mode": true` in its `metadata` block, so results from a precision run are always distinguishable from a standard run when comparing or archiving reports.
 
 ---
 
@@ -141,6 +179,24 @@ When `--optimize` is enabled:
 |---|---|
 | `optimized_rules.rule` | Selected fastest rule subset |
 | `optimized_rules_optimization_report.json` | Optimizer parameters and selected rule data |
+
+### JSON Report Metadata Fields
+
+```json
+{
+  "metadata": {
+    "total_rules": 64,
+    "test_date": "2026-04-05 14:32:00",
+    "test_iterations": 50,
+    "test_words_count": 1000,
+    "max_word_len": 64,
+    "max_rule_len": 32,
+    "identical_dicts_mode": false
+  }
+}
+```
+
+`identical_dicts_mode` is `true` when the run was performed with `--identical-dicts`.
 
 ---
 
@@ -216,6 +272,8 @@ Aether's OpenCL kernel implements the following Hashcat rule operations:
 | `% N X` | Less than N occurrences of X |
 | `Q` | Reject unconditionally |
 
+> **Tip:** Use `--identical-dicts` when benchmarking files that contain a significant proportion of reject/filter rules. The tiled input ensures these rules see a consistent, predictable word distribution on every iteration.
+
 ---
 
 ## Architecture
@@ -228,12 +286,12 @@ aether.py
 ├── VisualizationEngine  # Radar, heatmap, statistical, distribution charts
 ├── RulePerformanceTester
 │   ├── __init__()       # OpenCL context & queue setup
-│   ├── setup_test_data()# Load/generate test word corpus
+│   ├── setup_test_data()# Load/tile built-in word corpus; supports --identical-dicts
 │   ├── setup_visualization()
 │   ├── benchmark_rule() # Core GPU timing loop (statistical)
 │   ├── test_rule_file_performance()
 │   ├── save_sorted_rules()
-│   └── save_performance_report()
+│   └── save_performance_report()  # Records identical_dicts_mode in metadata
 ├── RuleSetOptimizer
 │   └── create_optimized_set() # Merge reports, select fastest subset
 ├── find_rule_files()    # Recursive .rule file discovery
@@ -245,7 +303,7 @@ aether.py
 ## How It Works
 
 1. **Initialization** — Aether selects an OpenCL platform/device and compiles the rule engine kernel.
-2. **Test Data** — A built-in corpus of representative passwords is loaded (up to `--max-words`).
+2. **Test Data** — A built-in corpus of 16 representative passwords is loaded. In standard mode, up to `--max-words` unique words are used. In `--identical-dicts` mode, the 16-word list is tiled to fill the full `--max-words` count, guaranteeing a uniform input distribution.
 3. **Benchmarking** — Each rule in the input file(s) is dispatched to the GPU. The kernel applies the rule to all test words in parallel. Timing is repeated `--test-runs` × `--iterations` times for statistical accuracy.
 4. **Statistics** — For each rule, Aether records mean, median, std deviation, coefficient of variation (CV%), min, max, and operations per second.
 5. **Sorting** — Rules are ranked fastest-first and written to a new `.rule` file.
@@ -258,6 +316,7 @@ aether.py
 
 - Use `--max-test-rules` to limit rules during initial exploration.
 - Use `--test-runs 5` or higher for more stable statistics on noisy systems.
+- Use `--identical-dicts` when your rule file is heavy on reject/filter rules — it removes word-variance noise and makes timing comparisons more meaningful.
 - Use `--platform` / `--device` to target a specific GPU when multiple OpenCL devices are present (run `clinfo` to list available devices).
 - Pass a directory path to `-r` to batch-benchmark an entire rule collection in one run.
 
@@ -274,4 +333,3 @@ MIT License. See [LICENSE](LICENSE) for details.
 - [Hashcat](https://hashcat.net/hashcat/) — the original rule specification this tool benchmarks against
 - Michelson-Morley interferometry methodology — inspiration for the precision-measurement approach to performance testing
 - [PyOpenCL](https://documen.tician.de/pyopencl/) — Python bindings for OpenCL
-
